@@ -1,6 +1,7 @@
 package controlapi
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"slices"
@@ -24,18 +25,36 @@ func (s *Server) handleLocalConnectionRefresh(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusBadRequest, "config_invalid", err.Error())
 		return
 	}
-	snapshot, err := s.fetchConnections(r.Context(), cfg)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, "connections_unavailable", err.Error())
+	ids, identityErr := s.gatewayLocalConnectionIDs(r.Context(), cfg)
+	if identityErr != nil {
+		writeError(w, http.StatusBadGateway, "local_identity_unavailable", identityErr.Error())
 		return
 	}
-	localIdentity, err := s.fetchGatewayLocalIdentity(r.Context(), cfg, snapshot)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, "local_identity_unavailable", err.Error())
-		return
-	}
-	ids := matchingConnectionIDs(snapshot, localIdentity.matches)
 	s.writeConnectionRefresh(w, r, cfg, ConnectionRefreshResponse{Scope: connectionRefreshScopeLocal}, ids)
+}
+
+func (s *Server) gatewayLocalConnectionIDs(ctx context.Context, cfg config.Config) ([]string, error) {
+	snapshot, err := s.fetchConnections(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	localIdentity, err := s.fetchGatewayLocalIdentity(ctx, cfg, snapshot)
+	if err != nil {
+		return nil, err
+	}
+	return matchingConnectionIDs(snapshot, localIdentity.matches), nil
+}
+
+func (s *Server) closeGatewayLocalConnections(ctx context.Context, cfg config.Config) (int, error) {
+	ids, err := s.gatewayLocalConnectionIDs(ctx, cfg)
+	if err != nil {
+		return 0, err
+	}
+	closed, err := s.closeConnections(ctx, cfg, ids)
+	if closed > 0 {
+		s.trafficSampler.reset()
+	}
+	return closed, err
 }
 
 func (s *Server) handleDeviceConnectionRefresh(w http.ResponseWriter, r *http.Request) {

@@ -258,6 +258,17 @@ func TestTrafficRateSamplerResetsAfterLongGap(t *testing.T) {
 	}
 }
 
+func TestDeviceAliasesOverrideTrafficDisplayNames(t *testing.T) {
+	response := DeviceTrafficResponse{Devices: []DeviceTraffic{
+		{IP: "192.168.31.63", Hostname: "desktop-pc", Name: "Registered"},
+		{IP: "192.168.31.61"},
+	}}
+	annotateDeviceAliases(&response, map[string]string{"192.168.31.63": "Win 电脑", "192.168.31.171": "unused"})
+	if response.Devices[0].Name != "Win 电脑" || response.Devices[1].Name != "" {
+		t.Fatalf("aliased traffic names = %#v", response.Devices)
+	}
+}
+
 func TestRegisteredDeviceNamesOverrideMissingLeaseHostnames(t *testing.T) {
 	policy := device.PolicySet{Devices: []device.ManagedDevice{
 		{ID: "PlayStation-5", MAC: "90:47:48:c8:f9:1b"},

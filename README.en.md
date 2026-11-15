@@ -67,6 +67,8 @@ Changes relative to upstream:
 - Optional menu-bar **CPU occupancy**, **memory percent**, and **CPU core temperature**
 - Tray-panel switches to choose which meters are shown; Settings has the same controls
 - Login-item launch no longer pops a window; the menu bar stays quiet
+- Switching this Mac between Rule / Global / Direct closes current Mac-local connections so apps reconnect under the new mode; downstream devices are left alone
+- Active-device lists can assign a display alias to each connected IP without full device registration
 
 <details>
   <summary><strong>OpenSurge in 10 images</strong></summary>

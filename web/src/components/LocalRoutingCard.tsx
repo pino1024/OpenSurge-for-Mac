@@ -65,6 +65,7 @@ export function LocalRoutingCard({
       setRouting(updated)
       const changed = previous?.mode !== updated.mode || (updated.mode === 'global' && previous?.global_group?.selected !== updated.global_group?.selected)
       if (changed) {
+        await api.refreshLocalConnections().catch(() => {})
         const selection = updated.mode === 'global' && updated.global_group
           ? policyDisplayName(updated.global_group.selected, healthByName.get(updated.global_group.selected))
           : t(modeDetails[updated.mode].label)

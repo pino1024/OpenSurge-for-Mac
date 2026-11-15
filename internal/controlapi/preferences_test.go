@@ -85,6 +85,36 @@ func TestUIPreferencesDefaultMemoryWhenOmitted(t *testing.T) {
 	}
 }
 
+func TestUIPreferencesMergeDeviceAliases(t *testing.T) {
+	server := newTestServer(t)
+	response := performAuthorized(server, http.MethodPut, "/api/v1/ui-preferences", []byte(`{"device_aliases":{"192.168.31.63":"Win 电脑","192.168.31.61":"手机"}}`))
+	if response.Code != http.StatusOK {
+		t.Fatalf("save aliases status=%d body=%s", response.Code, response.Body.String())
+	}
+	response = performAuthorized(server, http.MethodPut, "/api/v1/ui-preferences", []byte(`{"device_aliases":{"192.168.31.61":"","192.168.31.171":"iPhone"}}`))
+	if response.Code != http.StatusOK {
+		t.Fatalf("merge aliases status=%d body=%s", response.Code, response.Body.String())
+	}
+	var preferences UIPreferences
+	if err := json.Unmarshal(response.Body.Bytes(), &preferences); err != nil {
+		t.Fatal(err)
+	}
+	if preferences.DeviceAliases["192.168.31.63"] != "Win 电脑" || preferences.DeviceAliases["192.168.31.171"] != "iPhone" {
+		t.Fatalf("merged aliases=%v", preferences.DeviceAliases)
+	}
+	if _, exists := preferences.DeviceAliases["192.168.31.61"]; exists {
+		t.Fatalf("cleared alias still present: %v", preferences.DeviceAliases)
+	}
+}
+
+func TestUIPreferencesRejectInvalidDeviceAlias(t *testing.T) {
+	server := newTestServer(t)
+	response := performAuthorized(server, http.MethodPut, "/api/v1/ui-preferences", []byte(`{"device_aliases":{"not-an-ip":"Win"}}`))
+	if response.Code != http.StatusUnprocessableEntity || !strings.Contains(response.Body.String(), "device_alias_invalid") {
+		t.Fatalf("invalid alias IP status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
 func TestUIPreferencesRejectUnsupportedLanguage(t *testing.T) {
 	server := newTestServer(t)
 	response := performAuthorized(server, http.MethodPut, "/api/v1/ui-preferences", []byte(`{"language":"fr"}`))

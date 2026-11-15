@@ -58,6 +58,12 @@ button{cursor:pointer}
 .traffic-device{display:flex;align-items:center;gap:11px;min-width:180px}
 .traffic-device strong,.traffic-device small{display:block}
 .traffic-device small{margin-top:3px;color:#71847d;font-size:10px}
+.traffic-device .traffic-alias,.traffic-device .device-alias-editor{margin-top:6px}
+.traffic-alias{border:0;background:transparent;color:#8ce9bd;padding:0;font-size:10px;font-weight:700}
+.device-alias-editor{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.device-alias-editor input{min-width:0;flex:1;font:inherit;font-size:12px;font-weight:700;color:inherit;background:#122720;border:1px solid #2b493e;border-radius:6px;padding:4px 6px}
+.device-alias-editor button{border:1px solid #2b493e;border-radius:6px;background:#132720;color:#a7bab2;padding:4px 8px;font-size:10px;font-weight:750}
+.device-alias-editor .field-error{flex:1 0 100%;margin:0}
 .traffic-egress{max-width:260px;overflow:hidden;text-overflow:ellipsis;color:#b8cac3}
 .traffic-summary{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px 18px;margin-top:14px;color:#9eb2aa;font-size:12px}
 .traffic-summary small,.traffic-refresh-error{color:#71847d}
@@ -593,7 +599,7 @@ html[data-theme="light"] .gateway-meta{background:#f5faf8;border-color:#d1e2db}h
 html[data-theme="light"] .rate-direction{background:#ffffffa8}html[data-theme="light"] .rate-reading span,html[data-theme="light"] .rate-meta{color:#60776e}html[data-theme="light"] .rate-mini-chart{background:linear-gradient(180deg,transparent,#edf7f283)}html[data-theme="light"] .rate-mini-chart line{stroke:#d8e6e0}
 html[data-theme="light"] .gateway-service-strip,html[data-theme="light"] .activity-breakdown{border-color:#d9e7e1}html[data-theme="light"] .activity-breakdown span{border-color:#d9e7e1}
 html[data-theme="light"] .chart-grid-line{stroke:#d7e5df}html[data-theme="light"] .trend-axis{color:#71877e}
-html[data-theme="light"] .device-traffic-grid{border-color:#d9e7e1}html[data-theme="light"] .device-traffic-grid-head{background:#f4f9f7;color:#60776e}html[data-theme="light"] .device-traffic-row{border-color:#d9e7e1}html[data-theme="light"] .device-traffic-row:hover{background:#f0f8f4}html[data-theme="light"] .device-traffic-row.selected{background:linear-gradient(90deg,#dff2e9,#f7fcf9)}
+html[data-theme="light"] .device-traffic-grid{border-color:#d9e7e1}html[data-theme="light"] .device-traffic-grid-head{background:#f4f9f7;color:#60776e}html[data-theme="light"] .device-traffic-row{border-color:#d9e7e1}html[data-theme="light"] .device-traffic-row:hover{background:#f0f8f4}html[data-theme="light"] .device-traffic-row.selected{background:linear-gradient(90deg,#dff2e9,#f7fcf9)}html[data-theme="light"] .traffic-alias{color:#1f7a54}html[data-theme="light"] .device-alias-editor input{background:#f4f9f7;border-color:#d9e7e1;color:#20332c}html[data-theme="light"] .device-alias-editor button{background:#f4f9f7;border-color:#d9e7e1;color:#3d5b50}
 html[data-theme="light"] .traffic-ip code{background:#e6f2ed;color:#2d6752}html[data-theme="light"] .traffic-connections,html[data-theme="light"] .traffic-rate strong{color:#26493d}html[data-theme="light"] .traffic-rate small,html[data-theme="light"] .traffic-egress small{color:#6a8077}html[data-theme="light"] .traffic-egress strong{color:#36564a}
 html[data-theme="light"] .device-trend-card{background:#f8fbfa}html[data-theme="light"] .traffic-section-heading button{background:#edf5f1;border-color:#bed3ca;color:#254c3e}
 html[data-theme="light"] .mode.active{border-color:#54a983;background:linear-gradient(145deg,#e2f3eb,#fff)}

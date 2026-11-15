@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -50,7 +51,7 @@ func (s *Server) observeConnections(ctx context.Context, cfg config.Config) Conn
 	defer cache.mu.Unlock()
 	paths := runtime.NewPaths(cfg)
 	revision := fileDigest(s.configPath)
-	key := strings.Join([]string{revision, fileDigest(paths.StateFile), fileDigest(paths.DevicePolicyApplied), fileDigest(paths.LeaseFile), fileDigest(cfg.DevicePolicy.File)}, ":")
+	key := strings.Join([]string{revision, fileDigest(paths.StateFile), fileDigest(paths.DevicePolicyApplied), fileDigest(paths.LeaseFile), fileDigest(cfg.DevicePolicy.File), fileDigest(filepath.Join(s.store.Dir(), "preferences.json"))}, ":")
 	if cache.key == key && !cache.response.SampledAt.IsZero() && time.Since(cache.response.SampledAt) < connectionObservationInterval {
 		return cache.response
 	}
@@ -84,6 +85,7 @@ func (s *Server) observeConnections(ctx context.Context, cfg config.Config) Conn
 			appendPendingTrafficDevices(&traffic, bundle.Policy, cfg)
 		}
 	}
+	annotateDeviceAliases(&traffic, uiPreferencesOrDefault(s.store).DeviceAliases)
 	traffic.SchemaVersion = SchemaVersion
 	traffic.Revision = revision
 	traffic.SampledAt = sampledAt

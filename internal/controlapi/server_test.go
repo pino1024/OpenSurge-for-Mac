@@ -200,6 +200,34 @@ func TestLocalRoutingEndpointUsesDedicatedController(t *testing.T) {
 	}
 }
 
+func TestLocalRoutingModeChangeClosesGatewayLocalConnections(t *testing.T) {
+	server := newTestServer(t)
+	server.fetchTUNRuntime = func(context.Context, config.Config) (mihomo.TUNRuntimeState, error) {
+		return mihomo.TUNRuntimeState{Enabled: true, IPv4Addresses: []string{"198.18.0.1/30"}}, nil
+	}
+	server.fetchConnections = func(context.Context, config.Config) (mihomo.ConnectionsSnapshot, error) {
+		return mihomo.ConnectionsSnapshot{Connections: []mihomo.Connection{
+			{ID: "mac-old", Metadata: map[string]any{"sourceIP": "198.18.0.1", "type": "Tun", "inboundName": mihomo.SystemTUNListenerName}},
+			{ID: "phone", Metadata: map[string]any{"sourceIP": "192.168.1.151", "type": "Tun", "inboundName": mihomo.SystemTUNListenerName}},
+		}}, nil
+	}
+	var closed []string
+	server.closeConnections = func(_ context.Context, _ config.Config, ids []string) (int, error) {
+		closed = append([]string(nil), ids...)
+		return len(ids), nil
+	}
+	server.setLocalRouting = func(_ context.Context, _ config.Config, requestedMode, _ string) (mihomo.LocalRoutingSnapshot, error) {
+		return mihomo.LocalRoutingSnapshot{Mode: requestedMode, Consistent: true, NewConnectionsOnly: true}, nil
+	}
+	response := performAuthorized(server, http.MethodPost, "/api/v1/local-routing", []byte(`{"mode":"direct"}`))
+	if response.Code != http.StatusOK {
+		t.Fatalf("POST direct status=%d body=%s", response.Code, response.Body.String())
+	}
+	if !reflect.DeepEqual(closed, []string{"mac-old"}) {
+		t.Fatalf("closed = %#v", closed)
+	}
+}
+
 func TestGenericPolicySelectionRejectsLocalRoutingGroups(t *testing.T) {
 	server := newTestServer(t)
 	response := performAuthorized(server, http.MethodPost, "/api/v1/policies/open-surge%2Fmac-mode-tcp/selection", []byte(`{"policy":"DIRECT"}`))

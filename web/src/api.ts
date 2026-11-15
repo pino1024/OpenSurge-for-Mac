@@ -92,7 +92,7 @@ export const api = {
   setSleepPrevention: (enabled: boolean) => isDesktop()
     ? desktopAction<SleepPreventionStatus>('sleep-prevention', { enabled })
     : request<SleepPreventionStatus>('/api/v1/sleep-prevention', { method: 'PUT', body: JSON.stringify({ enabled }) }),
-  setUIPreferences: (preferences: { language?: RequestedLanguage; menu_bar?: Partial<MenuBarIndicators> }) => request<UIPreferences>('/api/v1/ui-preferences', { method: 'PUT', body: JSON.stringify(preferences) }),
+  setUIPreferences: (preferences: { language?: RequestedLanguage; menu_bar?: Partial<MenuBarIndicators>; device_aliases?: Record<string, string> }) => request<UIPreferences>('/api/v1/ui-preferences', { method: 'PUT', body: JSON.stringify(preferences) }),
   operation: (id: string) => operationStatusRequest<Operation>(`/api/v1/operations/${encodeURIComponent(id)}`),
   operations: () => operationStatusRequest<{ operations: Operation[] }>('/api/v1/operations'),
   gatewayPlan: (routerDHCPDisabled = false) => request<GatewayPlan>('/api/v1/gateway/plan', { method: 'POST', body: JSON.stringify({ router_dhcp_disabled: routerDHCPDisabled }) }),

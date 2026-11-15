@@ -99,9 +99,10 @@ const (
 )
 
 type UIPreferences struct {
-	SchemaVersion int               `json:"schema_version"`
-	Language      string            `json:"language"`
-	MenuBar       MenuBarIndicators `json:"menu_bar"`
+	SchemaVersion  int               `json:"schema_version"`
+	Language       string            `json:"language"`
+	MenuBar        MenuBarIndicators `json:"menu_bar"`
+	DeviceAliases  map[string]string `json:"device_aliases,omitempty"`
 }
 
 type MenuBarIndicators struct {

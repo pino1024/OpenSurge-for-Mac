@@ -74,13 +74,14 @@ to make local Direct mode effective.
 The IPv6 rule also requires `IN-NAME,DEFAULT-TUN`. It does not match the whole
 fake-IP `/64`, downstream `fdfe:dcba:9878::/64`, or the
 `opensurge-ipv6` listener. Reload the gateway after upgrading to a version with
-this support so it generates the new rules. Mode switches still affect only
-new connections; refresh or let applications recreate existing connections.
+this support so it generates the new rules. Switching Rule / Global / Direct
+closes current Mac-local connections so apps reconnect under the new mode;
+downstream device connections are left alone.
 
 The Web GUI's local-Mac mode and a device's “Follow gateway rules / Dedicated
 device egress” are therefore orthogonal controls:
 
-- changing the local mode is live and affects new connections;
+- changing the local mode is live and closes Mac-local connections so they reconnect under the new mode;
 - changing device identity, routing mode, or rules still requires save and
   reload;
 - changing an applied device selector remains scoped to that device.

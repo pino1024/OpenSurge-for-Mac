@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { DeviceTraffic, DeviceTrafficRow, TrafficHistoryPoint } from '../types'
 import { formatBytes, formatRate } from '../trafficFormat'
 import { deviceKey, gatewayLocalDeviceKey } from '../hooks/useDeviceTraffic'
+import { DeviceAliasField } from './DeviceAliasField'
 import { Empty, StatusDot } from './Common'
 import { TrafficTrendCard } from './TrafficTrendCard'
 import { connectionOwnerKey } from '../connections'
@@ -20,6 +21,7 @@ const detailTransitionMs = 460
 export function DeviceTrafficPanel({ gateway, traffic, history, error, onOpenConnections }: DeviceTrafficPanelProps) {
   const [selectedKey, setSelectedKey] = useState('')
   const [detailOpen, setDetailOpen] = useState(false)
+  const [aliasByIP, setAliasByIP] = useState<Record<string, string>>({})
   const closeTimer = useRef<number | null>(null)
   const visibleDevices = traffic ? [traffic.gateway_local, ...traffic.devices] : []
   const selectedDevice = visibleDevices.find(device => trafficRowKey(device) === selectedKey) ?? null
@@ -55,18 +57,18 @@ export function DeviceTrafficPanel({ gateway, traffic, history, error, onOpenCon
             </div>
             {visibleDevices.map(device => {
               const key = trafficRowKey(device)
-              const name = deviceName(device)
-              const expanded = key === selectedKey && detailOpen
               const local = device.identity_source === 'gateway_local'
+              const name = local ? deviceName(device) : aliasedDeviceName(device, aliasByIP)
+              const expanded = key === selectedKey && detailOpen
               const online = local ? gatewayActive(gateway) : device.online
-              return <button className={`device-traffic-row ${expanded ? 'selected' : ''}`} type="button" key={key} aria-label={t('查看 {{name}} {{ip}} 流量趋势', { name, ip: device.ip })} aria-expanded={expanded} onClick={() => selectDevice(device)}>
-                <span className="traffic-device"><StatusDot status={online ? 'running' : 'stopped'} /><span><strong>{name}</strong><small>{deviceIdentityDetail(device, gateway)}</small></span></span>
+              return <div className={`device-traffic-row ${expanded ? 'selected' : ''}`} role="button" tabIndex={0} key={key} aria-label={t('查看 {{name}} {{ip}} 流量趋势', { name, ip: device.ip })} aria-expanded={expanded} onClick={() => selectDevice(device)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectDevice(device) } }}>
+                <span className="traffic-device"><StatusDot status={online ? 'running' : 'stopped'} /><span><strong>{name}</strong><small>{deviceIdentityDetail(device, gateway)}</small>{!local && device.ip ? <DeviceAliasField compact ip={device.ip} currentName={aliasByIP[device.ip] ?? device.name} onSaved={alias => setAliasByIP(current => ({ ...current, [device.ip]: alias }))} /> : null}</span></span>
                 <span className="traffic-ip"><code>{device.ip || '—'}</code></span>
                 <span className="traffic-connections" data-label={t('连接')}>{device.active_connections}</span>
                 <RateCell label={`↑ ${t('上传')}`} rate={device.upload_rate} total={device.upload} />
                 <RateCell label={`↓ ${t('下载')}`} rate={device.download_rate} total={device.download} />
                 <span className="traffic-egress" title={device.primary_egress}><strong>{compactEgress(device.primary_egress)}</strong><small>{device.primary_egress || t('暂无出口')}</small></span>
-              </button>
+              </div>
             })}
           </div> : <Empty text={t(traffic ? '暂无 DHCP、静态登记或当前流量观察到的 LAN 设备' : '正在读取设备流量…')} />}
           {traffic && <div className="traffic-summary">
@@ -77,9 +79,9 @@ export function DeviceTrafficPanel({ gateway, traffic, history, error, onOpenCon
           {error && traffic && <small className="traffic-refresh-error">{t('刷新失败：{{error}}', { error })}</small>}
         </div>
         <aside className="device-trend-shell" aria-hidden={!detailOpen}>
-          {detailOpen && selectedDevice && onOpenConnections && <div className="traffic-view-connections"><button type="button" onClick={() => onOpenConnections(connectionOwnerKey(selectedDevice))}>{t('查看 {{name}} 的连接', { name: deviceName(selectedDevice) })}</button></div>}
+          {detailOpen && selectedDevice && onOpenConnections && <div className="traffic-view-connections"><button type="button" onClick={() => onOpenConnections(connectionOwnerKey(selectedDevice))}>{t('查看 {{name}} 的连接', { name: selectedDevice.identity_source === 'gateway_local' ? deviceName(selectedDevice) : aliasedDeviceName(selectedDevice, aliasByIP) })}</button></div>}
           {selectedDevice && <TrafficTrendCard
-            title={t('{{name}} 流量趋势', { name: deviceName(selectedDevice) })}
+            title={t('{{name}} 流量趋势', { name: selectedDevice.identity_source === 'gateway_local' ? deviceName(selectedDevice) : aliasedDeviceName(selectedDevice, aliasByIP) })}
             subtitle={`${selectedDevice.ip} · ${selectedDevice.primary_egress || t('暂无出口信息')}`}
             history={history}
             deviceKey={trafficRowKey(selectedDevice)}
@@ -95,9 +97,18 @@ function RateCell({ label, rate = 0, total = 0 }: { label: string; rate?: number
   return <span className="traffic-rate" data-label={label}><strong>{formatRate(rate)}</strong><small>{t('累计 {{total}}', { total: formatBytes(total) })}</small></span>
 }
 
+function aliasedDeviceName(device: DeviceTrafficRow, aliasByIP: Record<string, string>) {
+  if (Object.hasOwn(aliasByIP, device.ip)) return aliasByIP[device.ip] || unnamedDevice(device)
+  return deviceName(device)
+}
+
 function deviceName(device: DeviceTrafficRow) {
   if (device.identity_source === 'gateway_local') return t('本机 Mac')
   if (device.name) return device.name
+  return unnamedDevice(device)
+}
+
+function unnamedDevice(device: DeviceTrafficRow) {
   if (device.hostname) return device.hostname
   if (!device.mac) return t('当前设备 {{ip}}', { ip: device.ip })
   const parts = device.mac.toLowerCase().split(':')

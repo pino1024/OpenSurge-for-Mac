@@ -769,15 +769,16 @@ func (s *Server) handleUIPreferences(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var patch struct {
-		Language *string `json:"language"`
-		MenuBar  *struct {
+		Language      *string            `json:"language"`
+		DeviceAliases *map[string]string `json:"device_aliases"`
+		MenuBar       *struct {
 			Download    *bool `json:"download"`
 			CPU         *bool `json:"cpu"`
 			Memory      *bool `json:"memory"`
 			Temperature *bool `json:"temperature"`
 		} `json:"menu_bar"`
 	}
-	if err := decodeJSON(r, &patch, 4<<10); err != nil {
+	if err := decodeJSON(r, &patch, 16<<10); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
@@ -806,6 +807,14 @@ func (s *Server) handleUIPreferences(w http.ResponseWriter, r *http.Request) {
 		if patch.MenuBar.Temperature != nil {
 			preferences.MenuBar.Temperature = *patch.MenuBar.Temperature
 		}
+	}
+	if patch.DeviceAliases != nil {
+		merged, mergeErr := mergeDeviceAliases(preferences.DeviceAliases, *patch.DeviceAliases)
+		if mergeErr != nil {
+			writeError(w, http.StatusUnprocessableEntity, "device_alias_invalid", mergeErr.Error())
+			return
+		}
+		preferences.DeviceAliases = merged
 	}
 	if err := s.store.SaveUIPreferences(preferences); err != nil {
 		writeError(w, http.StatusInternalServerError, "ui_preferences_write_failed", err.Error())
@@ -2067,6 +2076,13 @@ func (s *Server) handleLocalRouting(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, status, code, err.Error())
 		return
+	}
+	if r.Method == http.MethodPost {
+		if _, closeErr := s.closeGatewayLocalConnections(r.Context(), cfg); closeErr != nil {
+			if snapshot.Warning == "" {
+				snapshot.Warning = "本机模式已切换，但未能断开旧连接；请刷新 Mac 本机连接后再试。"
+			}
+		}
 	}
 	writeJSON(w, http.StatusOK, LocalRoutingResponse{SchemaVersion: SchemaVersion, LocalRoutingSnapshot: snapshot})
 }

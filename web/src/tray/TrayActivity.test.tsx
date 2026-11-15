@@ -7,7 +7,7 @@ import { activateLanguage, prepareLanguage } from '../i18n'
 import type { DeviceTraffic, DeviceTrafficRow } from '../types'
 import { TrayActivity } from './TrayActivity'
 
-vi.mock('../api', () => ({ api: { localRouting: vi.fn(), setLocalRouting: vi.fn() } }))
+vi.mock('../api', () => ({ api: { localRouting: vi.fn(), setLocalRouting: vi.fn(), refreshLocalConnections: vi.fn(), setUIPreferences: vi.fn() } }))
 vi.mock('../desktop', () => ({ desktopAction: vi.fn() }))
 const row = (key: string, name: string, rate: number, connections = 1): DeviceTrafficRow => ({ key, name, ip: '192.0.2.20', mac: '', identity_source: 'registered_static', online: true, active_connections: connections, upload: 0, download: 0, upload_rate: 0, download_rate: rate })
 const fixture: DeviceTraffic = {
@@ -26,6 +26,8 @@ beforeEach(async () => {
  const routing = { schema_version: 1, mode: 'rule' as const, available_modes: ['rule', 'direct'] as Array<'rule' | 'direct'>, udp_behavior: 'rules' as const, transports: ['tun'] as Array<'tun'>, new_connections_only: true, consistent: true }
  vi.mocked(api.localRouting).mockResolvedValue(routing)
  vi.mocked(api.setLocalRouting).mockImplementation(async mode => ({ ...routing, mode }))
+ vi.mocked(api.refreshLocalConnections).mockResolvedValue({ schema_version: 1, scope: 'gateway_local', matched_connections: 0, closed_connections: 0 })
+ vi.mocked(api.setUIPreferences).mockResolvedValue({ schema_version: 1, language: 'en', device_aliases: {} })
 })
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.resetAllMocks(); delete window.__opensurgeWindowVisible; activateLanguage('zh-Hans') })
 
@@ -63,6 +65,7 @@ it('switches this Mac between bypass and direct routing without opening the desk
  expect(direct.getAttribute('aria-pressed')).toBe('false')
  await act(async () => { fireEvent.click(direct) })
  expect(api.setLocalRouting).toHaveBeenCalledWith('direct')
+ expect(api.refreshLocalConnections).toHaveBeenCalled()
  expect(direct.getAttribute('aria-pressed')).toBe('true')
  expect(bypass.getAttribute('aria-pressed')).toBe('false')
  expect(open).not.toHaveBeenCalled()

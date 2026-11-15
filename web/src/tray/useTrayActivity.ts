@@ -51,6 +51,7 @@ export function useTrayActivity(gateway?: string) {
 
   const applyMode = async (mode: LocalRoutingMode) => {
     const updated = await api.setLocalRouting(mode)
+    await api.refreshLocalConnections().catch(() => {})
     setActivity(current => ({ ...current, routing: updated, routingFailed: false }))
     return updated
   }

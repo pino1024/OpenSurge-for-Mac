@@ -138,6 +138,18 @@ func annotateRegisteredDeviceNames(response *DeviceTrafficResponse, policy devic
 	}
 }
 
+func annotateDeviceAliases(response *DeviceTrafficResponse, aliases map[string]string) {
+	if len(aliases) == 0 {
+		return
+	}
+	for index := range response.Devices {
+		ip := normalizeTrafficIP(response.Devices[index].IP)
+		if alias := strings.TrimSpace(aliases[ip]); alias != "" {
+			response.Devices[index].Name = alias
+		}
+	}
+}
+
 func annotateRegisteredLeaseNames(leases []device.Client, policy device.PolicySet) {
 	byMAC := registeredDeviceNames(policy)
 	for index := range leases {

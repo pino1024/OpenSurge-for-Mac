@@ -1,4 +1,5 @@
 import { useId, useState } from 'react'
+import { DeviceAliasField } from '../components/DeviceAliasField'
 import { connectionDeviceName, connectionOwnerKey } from '../connections'
 import { t } from '../i18n'
 import { buildSmoothChart } from '../trafficChart'
@@ -10,6 +11,7 @@ export function TrayActivity({ gateway, onOpen }: { gateway?: string; onOpen: (p
   const [expanded, setExpanded] = useState<string | null>(null)
   const [modeBusy, setModeBusy] = useState(false)
   const [modeError, setModeError] = useState('')
+  const [aliasByIP, setAliasByIP] = useState<Record<string, string>>({})
   const detailID = useId()
   const toggle = (key: string) => setExpanded(current => current === key ? null : key)
   const { traffic, routing, history, deviceKeys, trafficFailed, routingFailed, applyMode } = useTrayActivity(gateway)
@@ -74,7 +76,7 @@ export function TrayActivity({ gateway, onOpen }: { gateway?: string; onOpen: (p
       <div className="tray-section-heading"><h2>{t('活跃设备')}</h2><button className="tray-text-button" onClick={() => onOpen('dashboard', { section: 'active-devices' })}>{t('查看全部')} <span aria-hidden="true">›</span></button></div>
       {devices.length ? <div className="tray-device-list">{devices.map((device, index) => {
         const key = connectionOwnerKey(device)
-        const name = index === 0 ? t('本机 Mac') : connectionDeviceName(device)
+        const name = index === 0 ? t('本机 Mac') : Object.hasOwn(aliasByIP, device.ip) ? aliasByIP[device.ip] || connectionDeviceName({ ...device, name: '' }) : connectionDeviceName(device)
         const open = expanded === key
         return <div className={`tray-device-group ${open ? 'expanded' : ''}`} key={key}><button className="tray-device" onClick={() => toggle(key)} aria-expanded={open} aria-controls={`${detailID}-${index}`} aria-label={t('设备详情：{{name}}', { name })}>
         <span className={`tray-device-glyph ${index === 0 ? 'mac' : 'device'}`} aria-hidden="true"><svg viewBox="0 0 20 20"><rect x={index === 0 ? 2 : 5} y="3" width={index === 0 ? 16 : 10} height="12" rx="2" /><path d={index === 0 ? 'M 7 18 H 13 M 10 15 V 18' : 'M 9 13 H 11'} /></svg></span>
@@ -86,6 +88,7 @@ export function TrayActivity({ gateway, onOpen }: { gateway?: string; onOpen: (p
           <div><dt>{t('上传')}</dt><dd>{sampled ? formatRate(device.upload_rate) : '—'}</dd></div>
           <div><dt>{t('下载')}</dt><dd>{sampled ? formatRate(device.download_rate) : '—'}</dd></div>
           {device.primary_egress && <div><dt>{t('当前出口')}</dt><dd title={device.primary_egress}>{device.primary_egress}</dd></div>}
+          {index > 0 && device.ip ? <div><dt>{t('别名')}</dt><dd><DeviceAliasField ip={device.ip} currentName={aliasByIP[device.ip] ?? device.name} onSaved={alias => setAliasByIP(current => ({ ...current, [device.ip]: alias }))} /></dd></div> : null}
         </dl>
         <button className="tray-text-button" onClick={() => onOpen('connections', { owner: key })} aria-label={t('查看 {{name}} 的连接', { name })}>{t('在桌面窗口中查看连接')} <span aria-hidden="true">↗</span></button>
       </div></div></div></div>

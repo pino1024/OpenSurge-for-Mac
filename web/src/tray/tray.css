@@ -112,6 +112,9 @@ button.tray-device:hover, .tray-more summary:hover, .tray-more-trigger:hover { b
 .tray-status div { display: contents; }
 .tray-status dt { color: var(--tray-secondary); }
 .tray-status dd { margin: 0; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
+.tray-status dd:has(.device-alias-editor), .tray-status dd:has(.tray-text-button) { overflow: visible; white-space: normal; }
+.tray-status .device-alias-editor input { min-width: 0; flex: 1; font: inherit; font-size: 11px; color: inherit; background: var(--tray-control); border: 1px solid var(--tray-separator); border-radius: 6px; padding: 4px 6px; }
+.tray-status .device-alias-editor button { min-height: 24px; padding: 0 8px; font-size: 11px; }
 .tray-preferences { padding: 3px 0 10px; }
 .tray-preferences label, .tray-utilities label { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .tray-preferences label + label { margin-top: 8px; }
