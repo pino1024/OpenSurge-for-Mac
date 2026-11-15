@@ -17,6 +17,7 @@
     <a href="https://github.com/YTwsy/OpenSurge-for-Mac/releases">Download</a> ·
     <a href="https://opensurge.pages.dev/docs/">Documentation</a> ·
     <a href="docs/user/app-user-guide.md">App guide</a> ·
+    <a href="#source-and-changes">Source and changes</a> ·
     <a href="#capabilities">Capabilities</a> ·
     <a href="#per-device-policies">Per-device policies</a> ·
     <a href="#web-gui-and-menu-bar-app">Web GUI</a> ·
@@ -54,6 +55,18 @@ gateway or DNS changes.
 > For feature overviews, setup instructions, and practical guides, visit the [OpenSurge website](https://opensurge.pages.dev/).
 >
 > [Features](https://opensurge.pages.dev/features/) · [Guides](https://opensurge.pages.dev/guides/) · [Documentation](https://opensurge.pages.dev/docs/)
+
+## Source and changes
+
+This repository is a personal optimized fork of [YTwsy/OpenSurge-for-Mac](https://github.com/YTwsy/OpenSurge-for-Mac), not the upstream project. Releases, docs, and the website still come from the original repo. Personal node keys, server configs, and Control tokens are not included.
+
+Changes relative to upstream:
+
+- Menu bar shows **this Mac’s total download rate** (physical NIC traffic, proxy and direct alike; not downstream bypass-router traffic)
+- Fixed-width rate text without `/s`, so the label does not jump in length
+- Optional menu-bar **CPU occupancy** and **CPU core temperature**
+- Tray-panel switches to choose which meters are shown; Settings has the same controls
+- Login-item launch no longer pops a window; the menu bar stays quiet
 
 <details>
   <summary><strong>OpenSurge in 10 images</strong></summary>

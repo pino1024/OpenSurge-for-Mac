@@ -17,6 +17,7 @@
     <a href="https://github.com/YTwsy/OpenSurge-for-Mac/releases">下载</a> ·
     <a href="https://opensurge.pages.dev/zh-cn/docs/">使用文档</a> ·
     <a href="docs/user/app-user-guide.zh-CN.md">App 指南</a> ·
+    <a href="#来源与优化">来源与优化</a> ·
     <a href="#能力">能力</a> ·
     <a href="#每设备策略">每设备策略</a> ·
     <a href="#web-gui-与菜单栏-app">Web GUI</a> ·
@@ -49,6 +50,18 @@ AP、SSID 或 VLAN 时，则可以使用独立下游 LAN。三种模式均可按
 > 想了解 OpenSurge 的具体功能、安装配置和常见使用场景，请访问 [OpenSurge 官网](https://opensurge.pages.dev/zh-cn/)。
 >
 > [功能介绍](https://opensurge.pages.dev/zh-cn/features/) · [使用指南](https://opensurge.pages.dev/zh-cn/guides/) · [用户文档](https://opensurge.pages.dev/zh-cn/docs/)
+
+## 来源与优化
+
+本仓库是 [YTwsy/OpenSurge-for-Mac](https://github.com/YTwsy/OpenSurge-for-Mac) 的个人优化版本，不是上游官方仓库。上游发行版、文档与官网仍以原项目为准。本仓库不包含个人节点密钥、服务器配置、Control Token 等私人信息。
+
+相对上游，本版本主要做了这些界面与本机可观测性优化：
+
+- 菜单栏显示**本机全部下行速率**（物理网卡流量，不限是否走代理，也不含旁路由下游）
+- 速率用固定宽度显示，并去掉 `/s`，避免数字跳动时长短不一
+- 菜单栏可同时显示**总 CPU 占用率**和 **CPU 核心温度**
+- 托盘面板提供开关，可任选上述指标是否显示；设置页同样可改
+- 登录项启动时不再弹出窗口，只保留菜单栏
 
 <details>
   <summary><strong>十张图带你了解 OpenSurge</strong></summary>
