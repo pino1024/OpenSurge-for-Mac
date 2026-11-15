@@ -44,12 +44,29 @@ func TestUIPreferencesDefaultToSystemAndPersistLanguage(t *testing.T) {
 	}
 
 	overview := performAuthorized(server, http.MethodGet, "/api/v1/overview", nil)
-	if overview.Code != http.StatusOK || !strings.Contains(overview.Body.String(), `"ui_preferences":{"schema_version":1,"language":"en"}`) {
+	want := `"ui_preferences":{"schema_version":1,"language":"en","menu_bar":{"download":true,"cpu":true,"temperature":true}}`
+	if overview.Code != http.StatusOK || !strings.Contains(overview.Body.String(), want) {
 		t.Fatalf("overview preferences status=%d body=%s", overview.Code, overview.Body.String())
 	}
 	menuBar := performAuthorized(server, http.MethodGet, "/api/v1/menubar", nil)
-	if menuBar.Code != http.StatusOK || !strings.Contains(menuBar.Body.String(), `"ui_preferences":{"schema_version":1,"language":"en"}`) {
+	if menuBar.Code != http.StatusOK || !strings.Contains(menuBar.Body.String(), want) {
 		t.Fatalf("menubar preferences status=%d body=%s", menuBar.Code, menuBar.Body.String())
+	}
+}
+
+func TestUIPreferencesMergeMenuBarWithoutResettingLanguage(t *testing.T) {
+	server := newTestServer(t)
+	performAuthorized(server, http.MethodPut, "/api/v1/ui-preferences", []byte(`{"language":"en"}`))
+	response := performAuthorized(server, http.MethodPut, "/api/v1/ui-preferences", []byte(`{"menu_bar":{"cpu":false}}`))
+	if response.Code != http.StatusOK {
+		t.Fatalf("save menu bar status=%d body=%s", response.Code, response.Body.String())
+	}
+	var preferences UIPreferences
+	if err := json.Unmarshal(response.Body.Bytes(), &preferences); err != nil {
+		t.Fatal(err)
+	}
+	if preferences.Language != UILanguageEN || !preferences.MenuBar.Download || preferences.MenuBar.CPU || !preferences.MenuBar.Temperature {
+		t.Fatalf("merged preferences=%+v", preferences)
 	}
 }
 

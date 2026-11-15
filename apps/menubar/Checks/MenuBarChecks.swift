@@ -234,7 +234,7 @@ struct MenuBarChecks {
         try require(!useDefaultReopen && presentationCount == 1, "opening OpenSurge again must show the menu bar panel")
 
         let launchPresentationCount = await presentationCountAfterLaunch()
-        try require(launchPresentationCount == 1, "launching OpenSurge must show the menu bar panel")
+        try require(launchPresentationCount == 0, "launching OpenSurge must start silently in the menu bar")
 
         let applicationStateChangeCount = await stateChangeCountAfterLifecycleEvents()
         try require(

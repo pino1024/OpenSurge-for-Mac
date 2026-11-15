@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { connectionOwnerKey } from '../connections'
 import { desktopAction } from '../desktop'
-import type { DeviceTraffic, LocalRouting } from '../types'
+import type { DeviceTraffic, LocalRouting, LocalRoutingMode } from '../types'
 import { watchVisibleRefresh } from '../visibility'
 
 export type TrayTrafficPoint = { time: number; upload: number; download: number }
@@ -48,5 +48,12 @@ export function useTrayActivity(gateway?: string) {
     }, 2_000)
     return () => { active = false; stopTraffic(); stopRouting() }
   }, [running])
-  return running ? activity : empty
+
+  const applyMode = async (mode: LocalRoutingMode) => {
+    const updated = await api.setLocalRouting(mode)
+    setActivity(current => ({ ...current, routing: updated, routingFailed: false }))
+    return updated
+  }
+
+  return running ? { ...activity, applyMode } : { ...empty, applyMode }
 }

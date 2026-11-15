@@ -206,7 +206,8 @@ export type Overview = {
 }
 
 export type RequestedLanguage = 'system' | 'zh-Hans' | 'en'
-export type UIPreferences = { schema_version: number; language: RequestedLanguage }
+export type MenuBarIndicators = { download: boolean; cpu: boolean; temperature: boolean }
+export type UIPreferences = { schema_version: number; language: RequestedLanguage; menu_bar?: MenuBarIndicators }
 
 export type Source = {
   id: string

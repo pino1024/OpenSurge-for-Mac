@@ -2,6 +2,17 @@ package native
 
 import "testing"
 
+func TestCPUTempC(t *testing.T) {
+	c, ok := CPUTempC()
+	if !ok {
+		t.Fatal("CPU core temperature sensor not found")
+	}
+	if c < 10 || c > 120 {
+		t.Fatalf("implausible CPU temp %.1fC", c)
+	}
+	t.Logf("CPU core temp %.1fC", c)
+}
+
 func TestExternalURLBoundary(t *testing.T) {
 	for _, url := range []string{"https://github.com/YTwsy/OpenSurge-for-Mac", "http://192.0.2.1/"} {
 		if !ExternalURLAllowed(url) {

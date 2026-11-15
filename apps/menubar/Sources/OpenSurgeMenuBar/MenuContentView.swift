@@ -82,7 +82,7 @@ struct MenuContentView: View {
                     .help(L10n.text("刷新"))
             }
 
-            Toggle(L10n.text("登录时显示"), isOn: Binding(
+            Toggle(L10n.text("登录时启动"), isOn: Binding(
                 get: { model.openAtLogin },
                 set: { value in
                     model.openAtLogin = value

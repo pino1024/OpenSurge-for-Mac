@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	_ "embed"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 	"open-mihomo-gateway/apps/desktop/internal/menustatus"
 	"open-mihomo-gateway/apps/desktop/internal/native"
+	"open-mihomo-gateway/apps/desktop/internal/trayactivity"
 )
 
 //go:embed Resources/OpenSurgeMenuBarIcon.png
@@ -16,6 +18,52 @@ var trayIcon []byte
 func (h *desktopHost) showTray() {
 	_ = h.tray.PositionWindow(h.popup, 8)
 	h.popup.Show().Focus()
+}
+
+func (h *desktopHost) runMenuBarTraffic(ctx context.Context) {
+	var previous uint64
+	var sampledAt time.Time
+	var prevCPUUsed, prevCPUTotal uint64
+	var cpuPercent float64
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			h.mu.Lock()
+			show := h.menuBarShow
+			h.mu.Unlock()
+			current := native.LinkInboundBytes()
+			cpuUsed, cpuTotal, cpuOK := native.HostCPUTicks()
+			if sampledAt.IsZero() {
+				previous, sampledAt = current, now
+				if cpuOK {
+					prevCPUUsed, prevCPUTotal = cpuUsed, cpuTotal
+				}
+				continue
+			}
+			elapsed := now.Sub(sampledAt).Seconds()
+			var link int64
+			if elapsed > 0 && current >= previous {
+				link = int64(float64(current-previous) / elapsed)
+			}
+			previous, sampledAt = current, now
+			if cpuOK {
+				if next, ok := trayactivity.CPUPercent(prevCPUUsed, prevCPUTotal, cpuUsed, cpuTotal); ok {
+					cpuPercent = next
+				}
+				prevCPUUsed, prevCPUTotal = cpuUsed, cpuTotal
+			}
+			var tempC float64
+			var tempOK bool
+			if show.Temperature {
+				tempC, tempOK = native.CPUTempC()
+			}
+			native.SetMenuBarTraffic(trayactivity.FormatMenuBarStats(trayactivity.MacDownloadRate(link, h.activity.Snapshot()), cpuPercent, tempC, tempOK, show))
+		}
+	}
 }
 
 func (h *desktopHost) createTray() {
@@ -62,6 +110,17 @@ func (h *desktopHost) menuStatusChanged(snapshot menustatus.Snapshot) {
 	}
 	h.mu.Lock()
 	english := h.language == "en"
+	if status := snapshot.Status; status != nil {
+		if status.UIPreferences.MenuBar == nil {
+			h.menuBarShow = trayactivity.DefaultMenuBarShow()
+		} else {
+			h.menuBarShow = trayactivity.MenuBarShow{
+				Download:    status.UIPreferences.MenuBar.Download,
+				CPU:         status.UIPreferences.MenuBar.CPU,
+				Temperature: status.UIPreferences.MenuBar.Temperature,
+			}
+		}
+	}
 	h.mu.Unlock()
 	descriptions := map[string][2]string{
 		"connecting": {"正在连接后台服务", "Connecting to service"},

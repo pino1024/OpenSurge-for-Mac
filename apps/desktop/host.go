@@ -29,6 +29,7 @@ type desktopHost struct {
 	client        *controlclient.Client
 	mu            sync.Mutex
 	language      string
+	menuBarShow   trayactivity.MenuBarShow
 	popup         *application.WebviewWindow
 	trayMore      *application.WebviewWindow
 	tray          *application.SystemTray

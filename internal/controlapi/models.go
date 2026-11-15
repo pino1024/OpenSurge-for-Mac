@@ -98,8 +98,15 @@ const (
 )
 
 type UIPreferences struct {
-	SchemaVersion int    `json:"schema_version"`
-	Language      string `json:"language"`
+	SchemaVersion int               `json:"schema_version"`
+	Language      string            `json:"language"`
+	MenuBar       MenuBarIndicators `json:"menu_bar"`
+}
+
+type MenuBarIndicators struct {
+	Download    bool `json:"download"`
+	CPU         bool `json:"cpu"`
+	Temperature bool `json:"temperature"`
 }
 
 type MihomoRecoveryStatus struct {

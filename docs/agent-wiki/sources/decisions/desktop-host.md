@@ -253,8 +253,16 @@ resampling or changing the superclass `NSButton` setter. Recheck this adaptation
 upgrading Wails; smoke mode logs the actual assigned image dimensions and opacity.
 Match the Swift host's state appearance: brand image at 0.75 opacity while connecting,
 0.55 when stopped, 0.35 when unreachable, and 1.0 while running. Degraded/recovery
-use the original AppKit warning symbols at full opacity. Do not append text badges
-that widen the status item. Keep the brand source separate from rendered warning images.
+use the original AppKit warning symbols at full opacity. The status item shows optional meters beside the icon: a fixed 4-character inbound
+rate (` 12K`, `1.5M`; no `/s`), host CPU percent (`  8%`, `100%`) and the hottest
+CPU-core HID temperature (` 42C`), in a monospaced font so the item width stays
+put while the digits tick. Settings chooses any combination via
+`ui_preferences.menu_bar`; omitting the object shows all three. The rate is
+physical NIC octets minus downstream bypass-router sessions. LAN and DIRECT
+downloads on the Mac are included; phone traffic through OpenSurge is not. CPU
+occupancy comes from `HOST_CPU_LOAD_INFO`; core temperature is the hottest IOHID
+`tdie` / CPU/pACC/eACC sensor. Keep the brand source separate from rendered
+warning images.
 Lifecycle transitions use the circular-arrows symbol, rollback uses a return arrow,
 and unknown observations use a question mark. Pending configuration and cached Doctor
 warnings retain the running brand icon and appear as secondary text in the popup.

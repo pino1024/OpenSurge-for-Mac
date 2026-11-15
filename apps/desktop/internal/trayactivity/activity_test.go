@@ -9,8 +9,93 @@ import (
 )
 
 func observation(at time.Time) []byte {
-	data, _ := json.Marshal(map[string]any{"schema_version": 1, "sampled_at": at, "gateway_rates": map[string]int{"upload": 125, "download": 4000}, "devices": []any{}})
+	data, _ := json.Marshal(map[string]any{"schema_version": 1, "sampled_at": at, "gateway_rates": map[string]int{"upload": 125, "download": 4000}, "gateway_local": map[string]int{"download_rate": 2500}, "devices": []any{}})
 	return data
+}
+
+func TestFormatDownloadRate(t *testing.T) {
+	pad := "\u2007"
+	cases := map[int64]string{
+		0: pad + pad + "0B", 12: pad + "12B", 999: "999B", 1000: "1.0K", 1500: "1.5K",
+		9_949: "9.9K", 9_950: pad + "10K", 12_300: pad + "12K", 125_000: "125K",
+		999_500: "1.0M", 1_500_000: "1.5M", 12_000_000: pad + "12M",
+	}
+	for input, want := range cases {
+		got := FormatDownloadRate(input)
+		if got != want {
+			t.Fatalf("FormatDownloadRate(%d)=%q want %q", input, got, want)
+		}
+		if n := len([]rune(got)); n != 4 {
+			t.Fatalf("FormatDownloadRate(%d)=%q width %d", input, got, n)
+		}
+	}
+}
+
+func TestFormatCPUPercentAndMenuBarStats(t *testing.T) {
+	pad := "\u2007"
+	for input, want := range map[float64]string{
+		0: pad + pad + "0%", 8.2: pad + pad + "8%", 23.4: pad + "23%", 99.5: "100%", 100: "100%", -3: pad + pad + "0%", 140: "100%",
+	} {
+		got := FormatCPUPercent(input)
+		if got != want {
+			t.Fatalf("FormatCPUPercent(%v)=%q want %q", input, got, want)
+		}
+		if n := len([]rune(got)); n != 4 {
+			t.Fatalf("FormatCPUPercent(%v)=%q width %d", input, got, n)
+		}
+	}
+	if got, want := FormatCPUTemp(42.4, true), pad+"42C"; got != want {
+		t.Fatalf("FormatCPUTemp=%q want %q", got, want)
+	}
+	if got, want := FormatCPUTemp(0, false), pad+"--C"; got != want {
+		t.Fatalf("missing temp=%q", got)
+	}
+	got := FormatMenuBarStats(12_300, 8.2, 42.4, true, DefaultMenuBarShow())
+	want := pad + "12K" + pad + pad + pad + "8%" + pad + pad + "42C"
+	if got != want {
+		t.Fatalf("FormatMenuBarStats=%q want %q", got, want)
+	}
+	if n := len([]rune(got)); n != 14 {
+		t.Fatalf("combined width %d", n)
+	}
+	if got := FormatMenuBarStats(12_300, 8.2, 42.4, true, MenuBarShow{Temperature: true}); got != pad+"42C" {
+		t.Fatalf("temp-only=%q", got)
+	}
+	if got := FormatMenuBarStats(12_300, 8.2, 42.4, true, MenuBarShow{}); got != "" {
+		t.Fatalf("hidden=%q", got)
+	}
+	if p, ok := CPUPercent(10, 100, 25, 200); !ok || p != 15 {
+		t.Fatalf("CPUPercent=%v ok=%v", p, ok)
+	}
+	if _, ok := CPUPercent(50, 100, 40, 90); ok {
+		t.Fatal("wrapped ticks must be skipped")
+	}
+}
+
+func TestMacDownloadRateKeepsLocalLinkAndDropsDownstream(t *testing.T) {
+	live := Snapshot{Traffic: []byte(`{}`), LocalDownload: 1_000_000, GatewayDownload: 4_000_000}
+	if got := MacDownloadRate(5_000_000, live); got != 2_000_000 {
+		t.Fatalf("mac rate = %d", got)
+	}
+	if got := MacDownloadRate(800_000, live); got != 0 {
+		t.Fatalf("clamped rate = %d", got)
+	}
+	if got := MacDownloadRate(3_000_000, Snapshot{Failed: true}); got != 3_000_000 {
+		t.Fatalf("nic-only rate = %d", got)
+	}
+}
+
+func TestLocalDownloadUsesGatewayLocalRate(t *testing.T) {
+	now := time.Now().UTC()
+	m := New(func(context.Context) ([]byte, error) { return observation(now), nil })
+	m.now = func() time.Time { return now }
+	var last Snapshot
+	m.SetChanged(func(snapshot Snapshot) { last = snapshot })
+	m.SetRunning(true)
+	m.refresh(context.Background())
+	if last.Failed || last.LocalDownload != 2500 || last.GatewayDownload != 4000 || FormatDownloadRate(last.LocalDownload) != "2.5K" {
+		t.Fatalf("local download = %+v", last)
+	}
 }
 
 func TestHistorySurvivesWithoutRendererReadsAndRemainsBounded(t *testing.T) {

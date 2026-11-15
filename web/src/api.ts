@@ -1,5 +1,5 @@
 import { operationID } from './operationID'
-import type { CustomDNSDocument, CustomDNSDraft, CustomDNSImport, CustomDNSPreview, APIError, ConnectionObservation, ConnectionRefreshResult, ConnectivityResponse, ControlConfig, DevicePolicyDocument, DevicesResponse, DeviceTraffic, Diagnostics, DoctorRunStatus, GatewayPlan, LocalRouting, LocalRoutingMode, NetworkDefaults, NetworkInterfacesResponse, Operation, Overview, PolicySet, PolicyWorkspaceRequest, PolicyWorkspaceSnapshot, ProfileOverlay, ProfileOverlayDocument, ProfileOverlayPreview, ProxyGroup, ProxyHealthSnapshot, ProxyHealthTestResponse, SleepPreventionStatus, Source, SourceSnapshotFile, TailscaleDiscoveryResponse, TailscaleResponse, TailscaleUpdate, UIPreferences } from './types'
+import type { CustomDNSDocument, CustomDNSDraft, CustomDNSImport, CustomDNSPreview, APIError, ConnectionObservation, ConnectionRefreshResult, ConnectivityResponse, ControlConfig, DevicePolicyDocument, DevicesResponse, DeviceTraffic, Diagnostics, DoctorRunStatus, GatewayPlan, LocalRouting, LocalRoutingMode, MenuBarIndicators, NetworkDefaults, NetworkInterfacesResponse, Operation, Overview, PolicySet, PolicyWorkspaceRequest, PolicyWorkspaceSnapshot, ProfileOverlay, ProfileOverlayDocument, ProfileOverlayPreview, ProxyGroup, ProxyHealthSnapshot, ProxyHealthTestResponse, RequestedLanguage, SleepPreventionStatus, Source, SourceSnapshotFile, TailscaleDiscoveryResponse, TailscaleResponse, TailscaleUpdate, UIPreferences } from './types'
 import { getOperation, markOperationConnection, operationStatusUnknownMessage, recordOperation } from './operations'
 import { desktopAction, desktopHeaders, isDesktop } from './desktop'
 import { t } from './i18n'
@@ -92,7 +92,7 @@ export const api = {
   setSleepPrevention: (enabled: boolean) => isDesktop()
     ? desktopAction<SleepPreventionStatus>('sleep-prevention', { enabled })
     : request<SleepPreventionStatus>('/api/v1/sleep-prevention', { method: 'PUT', body: JSON.stringify({ enabled }) }),
-  setUIPreferences: (preferences: Pick<UIPreferences, 'language'>) => request<UIPreferences>('/api/v1/ui-preferences', { method: 'PUT', body: JSON.stringify(preferences) }),
+  setUIPreferences: (preferences: { language?: RequestedLanguage; menu_bar?: Partial<MenuBarIndicators> }) => request<UIPreferences>('/api/v1/ui-preferences', { method: 'PUT', body: JSON.stringify(preferences) }),
   operation: (id: string) => operationStatusRequest<Operation>(`/api/v1/operations/${encodeURIComponent(id)}`),
   operations: () => operationStatusRequest<{ operations: Operation[] }>('/api/v1/operations'),
   gatewayPlan: (routerDHCPDisabled = false) => request<GatewayPlan>('/api/v1/gateway/plan', { method: 'POST', body: JSON.stringify({ router_dhcp_disabled: routerDHCPDisabled }) }),

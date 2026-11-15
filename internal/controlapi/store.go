@@ -54,8 +54,12 @@ func (s *Store) Token() (string, error) {
 	return token, nil
 }
 
+func defaultMenuBarIndicators() MenuBarIndicators {
+	return MenuBarIndicators{Download: true, CPU: true, Temperature: true}
+}
+
 func defaultUIPreferences() UIPreferences {
-	return UIPreferences{SchemaVersion: SchemaVersion, Language: UILanguageSystem}
+	return UIPreferences{SchemaVersion: SchemaVersion, Language: UILanguageSystem, MenuBar: defaultMenuBarIndicators()}
 }
 
 func validUILanguage(language string) bool {

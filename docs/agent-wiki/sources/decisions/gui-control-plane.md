@@ -61,7 +61,8 @@ active、PF anchor loaded、forwarding enabled 且整体 gateway running 时才�
 菜单栏面板不再增加第二个选择器。默认值是 `system`；用户没有选择过语言时，Web 按浏览器
 第一语言、原生菜单按 macOS 首选语言的第一项决定显示语言，所有 `zh-*` 偏好
 使用简体中文，其他语言回退到 English。Web 通过受认证的
-`GET/PUT /api/v1/ui-preferences` 保存 `system | zh-Hans | en`，Control Service 将该偏好以
+`GET/PUT /api/v1/ui-preferences` 保存 `system | zh-Hans | en`，以及菜单栏指标
+`menu_bar.{download,cpu,temperature}`（缺省为全部开启）。语言与指标可分别 PATCH，互不覆盖。Control Service 将该偏好以
 `0600` 写入用户数据目录的 `preferences.json`，并在 overview、menubar 与 state event 中
 返回同一值。浏览器 localStorage 只用于避免首屏闪烁，不是第二份权威偏好；菜单栏通过现有
 状态轮询最终同步 Web 的选择，在取得第一份状态前仍按本机语言显示。网络模式的三张拓扑图

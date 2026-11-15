@@ -17,9 +17,9 @@ it('shows pending approval and preserves the OS state after a failed change', as
  })
  render(<TrayUtilities />)
  await screen.findByRole('region', { name: 'App settings and updates' })
- await userEvent.click(screen.getByRole('switch', { name: 'Show at login' }))
+ await userEvent.click(screen.getByRole('switch', { name: 'Start at login' }))
  expect(await screen.findByText('Waiting for macOS approval of the login item.')).toBeTruthy()
- await userEvent.click(screen.getByRole('switch', { name: 'Show at login' }))
+ await userEvent.click(screen.getByRole('switch', { name: 'Start at login' }))
  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Could not update the login item. The actual macOS state is preserved.')
  expect((screen.getByRole('switch') as HTMLInputElement).checked).toBe(true)
  await userEvent.click(screen.getByRole('button', { name: 'Open Login Items settings' }))
@@ -41,13 +41,13 @@ it('opens the validated stable release and clears it when a later check fails', 
  expect(await screen.findByRole('status')).toHaveProperty('textContent', 'Could not check for updates. Please try again later.')
 })
 
-it('recovers a missing login item only after the user turns on Show at login', async () => {
+it('recovers a missing login item only after the user turns on Start at login', async () => {
  vi.mocked(desktopAction).mockImplementation(async action => action === 'login-item'
   ? { state: 'enabled', sequence: 2, failed: false }
   : { ...initial, login: { state: 'not_found', sequence: 1, failed: false } })
  render(<TrayUtilities />)
- await screen.findByText('macOS could not find a login item for this version. Turn on Show at login to register it again.')
- const toggle = screen.getByRole('switch', { name: 'Show at login' }) as HTMLInputElement
+ await screen.findByText('macOS could not find a login item for this version. Turn on Start at login to register it again.')
+ const toggle = screen.getByRole('switch', { name: 'Start at login' }) as HTMLInputElement
  expect(toggle.disabled || toggle.checked).toBe(false)
  expect(vi.mocked(desktopAction).mock.calls.some(([action]) => action === 'login-item')).toBe(false)
  await userEvent.click(toggle)

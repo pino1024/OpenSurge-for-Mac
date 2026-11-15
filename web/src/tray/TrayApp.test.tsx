@@ -4,10 +4,12 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { TrayApp, TrayMenuApp, diagnosticSummary } from './TrayApp'
 import { desktopAction, copyText, isDesktop } from '../desktop'
+import { api } from '../api'
 import { activateLanguage, prepareLanguage } from '../i18n'
 import type { TraySnapshot } from './types'
 
 vi.mock('../desktop', () => ({ desktopAction: vi.fn(), copyText: vi.fn(), isDesktop: vi.fn() }))
+vi.mock('../api', () => ({ api: { setUIPreferences: vi.fn() } }))
 const fixture: TraySnapshot = { indicator: 'stopped', sequence: 1, can_quit: true, status: {
  schema_version: 1, revision: 'test', gateway: 'stopped', topology: 'same_lan', lan_ip: '192.0.2.10', dhcp: 'stopped', mihomo: 'stopped', tun: 'stopped', pf_anchor: 'unloaded', forwarding: 'disabled', ipv4_takeover: 'stopped', ipv6_takeover: 'disabled', client_count: 0, drift: false, doctor_healthy: false, recovery_required: false, warnings: [], sleep_prevention: { enabled: false, active: false }, ui_preferences: { schema_version: 1, language: 'en' },
 } }
@@ -15,6 +17,7 @@ beforeEach(async () => {
  await prepareLanguage('en'); activateLanguage('en')
  vi.mocked(isDesktop).mockReturnValue(false)
  vi.mocked(desktopAction).mockImplementation(async () => fixture)
+ vi.mocked(api.setUIPreferences).mockImplementation(async value => ({ schema_version: 1, language: 'en', menu_bar: { download: true, cpu: true, temperature: true, ...value.menu_bar } }))
 })
 afterEach(() => { cleanup(); vi.clearAllMocks(); activateLanguage('zh-Hans'); localStorage.clear(); delete window.__opensurgeWindowVisible })
 
@@ -157,7 +160,7 @@ it('presents recovery before runtime state and clears actionable controls on dis
  vi.mocked(desktopAction).mockResolvedValue({ status: null, sequence: 2, indicator: 'unreachable', can_quit: false })
  await userEvent.click(screen.getByRole('button', { name: 'Refresh status' }))
  await waitFor(() => expect(screen.queryByText('192.0.2.10')).toBeNull())
- expect((screen.getByRole('switch') as HTMLInputElement).disabled).toBe(true)
+ expect((screen.getByRole('switch', { name: 'Keep running with lid closed' }) as HTMLInputElement).disabled).toBe(true)
  expect(screen.queryByRole('button', { name: 'Continue recovery' })).toBeNull()
 })
 
@@ -170,6 +173,16 @@ it('routes full exit to native confirmation only when the service snapshot permi
  expect(desktopAction).toHaveBeenCalledWith('quit', { full: true })
 })
 
+it('toggles menu bar meters from the panel switches', async () => {
+ render(<TrayApp />)
+ await screen.findByText('192.0.2.10', { selector: '.tray-subtitle span' })
+ const cpu = screen.getByRole('switch', { name: 'CPU usage' }) as HTMLInputElement
+ expect(cpu.checked).toBe(true)
+ await userEvent.click(cpu)
+ await waitFor(() => expect(api.setUIPreferences).toHaveBeenCalledWith({ menu_bar: { download: true, cpu: false, temperature: true } }))
+ expect(desktopAction).toHaveBeenCalledWith('menubar-status', { refresh: true })
+})
+
 it('acknowledges sleep changes once and shows the heat warning', async () => {
  let enabled = false
  vi.mocked(desktopAction).mockImplementation(async (action) => {
@@ -178,8 +191,8 @@ it('acknowledges sleep changes once and shows the heat warning', async () => {
  })
  render(<TrayApp />)
  await screen.findByText('192.0.2.10', { selector: '.tray-subtitle span' })
- await userEvent.click(screen.getByRole('switch'))
- await waitFor(() => expect((screen.getByRole('switch') as HTMLInputElement).checked).toBe(true))
+ await userEvent.click(screen.getByRole('switch', { name: 'Keep running with lid closed' }))
+ await waitFor(() => expect((screen.getByRole('switch', { name: 'Keep running with lid closed' }) as HTMLInputElement).checked).toBe(true))
  expect(vi.mocked(desktopAction).mock.calls.filter(([action]) => action === 'sleep-prevention')).toEqual([['sleep-prevention', { enabled: true }]])
  expect(await screen.findByText(/unventilated bag/)).toBeTruthy()
 })

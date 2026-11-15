@@ -3,19 +3,34 @@ import { connectionDeviceName, connectionOwnerKey } from '../connections'
 import { t } from '../i18n'
 import { buildSmoothChart } from '../trafficChart'
 import { formatRate } from '../trafficFormat'
+import type { LocalRoutingMode } from '../types'
 import { useTrayActivity } from './useTrayActivity'
 
 export function TrayActivity({ gateway, onOpen }: { gateway?: string; onOpen: (page: string, options?: { owner?: string; section?: 'active-devices' }) => void }) {
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [modeBusy, setModeBusy] = useState(false)
+  const [modeError, setModeError] = useState('')
   const detailID = useId()
   const toggle = (key: string) => setExpanded(current => current === key ? null : key)
-  const { traffic, routing, history, deviceKeys, trafficFailed, routingFailed } = useTrayActivity(gateway)
+  const { traffic, routing, history, deviceKeys, trafficFailed, routingFailed, applyMode } = useTrayActivity(gateway)
   const running = gateway === 'running' || gateway === 'degraded'
   const sampled = Boolean(traffic && history.length > 1)
   const maximum = Math.max(1, ...history.flatMap(point => [point.download, point.upload]))
   const download = buildSmoothChart(history.map(point => point.download), maximum, 4, 46)
   const upload = buildSmoothChart(history.map(point => point.upload), maximum, 4, 46)
   const mode = routing ? ({ rule: '按规则', global: '固定出口', direct: '本机直连' } as const)[routing.mode] : null
+  const setMode = async (next: LocalRoutingMode) => {
+    if (!running || !routing || modeBusy || routing.mode === next) return
+    setModeBusy(true)
+    setModeError('')
+    try {
+      await applyMode(next)
+    } catch (cause) {
+      setModeError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setModeBusy(false)
+    }
+  }
   const devices = traffic ? [traffic.gateway_local, ...deviceKeys.flatMap(key => traffic.devices.filter(device => connectionOwnerKey(device) === key))] : []
   const activeDevices = traffic?.devices.filter(device => device.active_connections > 0).length ?? 0
   const connections = traffic ? traffic.gateway_local.active_connections + traffic.totals.active_connections + (traffic.unclassified_connections ?? 0) : 0
@@ -32,8 +47,16 @@ export function TrayActivity({ gateway, onOpen }: { gateway?: string; onOpen: (p
       <div className="tray-traffic-caption"><p className="tray-caption" role="status">{t(gateway === 'stopped' ? '启动网关后显示实时流量' : !running ? '等待网关状态…' : trafficFailed ? '流量暂不可用' : !sampled ? '正在采样流量…' : '近 60 秒 · 经 OpenSurge 的流量')}</p>{gateway === 'stopped' && <button className="tray-text-button" onClick={() => onOpen('network')}>{t('前往启动')} <span aria-hidden="true">›</span></button>}</div>
     </section>
     <div className={`tray-routing-group ${expanded === 'routing' ? 'expanded' : ''}`}>
+      <div className="tray-routing-header">
+        <span>{t('本机出口')}</span>
+        <div className="tray-mode-switch" role="group" aria-label={t('本机出口')}>
+          <button type="button" aria-pressed={routing ? routing.mode !== 'direct' : false} disabled={!running || !routing || modeBusy} onClick={() => void setMode('rule')}>{t('旁路由')}</button>
+          <button type="button" aria-pressed={routing?.mode === 'direct'} disabled={!running || !routing || modeBusy} onClick={() => void setMode('direct')}>{t('直连')}</button>
+        </div>
+      </div>
+      {modeError && <p className="tray-error" role="alert">{modeError}</p>}
       <button className="tray-link-row tray-routing" aria-expanded={expanded === 'routing'} aria-controls={`${detailID}-routing`} onClick={() => toggle('routing')}>
-        <span>{t('本机出口')}</span><span className="tray-row-value">{mode ? t(mode) : t(!running ? '网关未运行' : routingFailed ? '暂不可用' : '正在读取…')}{routing?.mode === 'global' && routing.global_group && <small title={routing.global_group.selected}>{routing.global_group.selected}</small>}</span><svg className="tray-disclosure" viewBox="0 0 12 12" aria-hidden="true"><path d="m4 2 4 4-4 4" /></svg>
+        <span>{t('本机出口详情')}</span><span className="tray-row-value">{mode ? t(mode) : t(!running ? '网关未运行' : routingFailed ? '暂不可用' : '正在读取…')}{routing?.mode === 'global' && routing.global_group && <small title={routing.global_group.selected}>{routing.global_group.selected}</small>}</span><svg className="tray-disclosure" viewBox="0 0 12 12" aria-hidden="true"><path d="m4 2 4 4-4 4" /></svg>
       </button>
       <div className="tray-detail-reveal" id={`${detailID}-routing`} aria-hidden={expanded !== 'routing'} inert={expanded !== 'routing'}><div className="tray-detail-inner"><div className="tray-routing-details">
         <p className="tray-hint">{t('仅影响本机 Mac，下游设备保持各自的出口设置。')}</p>

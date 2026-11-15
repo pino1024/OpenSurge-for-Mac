@@ -7,7 +7,7 @@ import { activateLanguage, prepareLanguage } from '../i18n'
 import type { DeviceTraffic, DeviceTrafficRow } from '../types'
 import { TrayActivity } from './TrayActivity'
 
-vi.mock('../api', () => ({ api: { localRouting: vi.fn() } }))
+vi.mock('../api', () => ({ api: { localRouting: vi.fn(), setLocalRouting: vi.fn() } }))
 vi.mock('../desktop', () => ({ desktopAction: vi.fn() }))
 const row = (key: string, name: string, rate: number, connections = 1): DeviceTrafficRow => ({ key, name, ip: '192.0.2.20', mac: '', identity_source: 'registered_static', online: true, active_connections: connections, upload: 0, download: 0, upload_rate: 0, download_rate: rate })
 const fixture: DeviceTraffic = {
@@ -23,7 +23,9 @@ beforeEach(async () => {
  vi.mocked(desktopAction).mockImplementation(async () => ({ traffic: { ...fixture, sampled_at: new Date().toISOString() }, failed: false, history: [
   { time: Date.now() - 2000, ...fixture.gateway_rates }, { time: Date.now(), ...fixture.gateway_rates },
  ] }))
- vi.mocked(api.localRouting).mockResolvedValue({ schema_version: 1, mode: 'rule', available_modes: ['rule', 'direct'], udp_behavior: 'rules', transports: ['tun'], new_connections_only: true, consistent: true })
+ const routing = { schema_version: 1, mode: 'rule' as const, available_modes: ['rule', 'direct'] as Array<'rule' | 'direct'>, udp_behavior: 'rules' as const, transports: ['tun'] as Array<'tun'>, new_connections_only: true, consistent: true }
+ vi.mocked(api.localRouting).mockResolvedValue(routing)
+ vi.mocked(api.setLocalRouting).mockImplementation(async mode => ({ ...routing, mode }))
 })
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.resetAllMocks(); delete window.__opensurgeWindowVisible; activateLanguage('zh-Hans') })
 
@@ -38,7 +40,7 @@ it('shows live rates, counts active downstream devices, and expands details befo
  fireEvent.click(screen.getByRole('button', { name: /View all/ }))
  expect(open).toHaveBeenCalledWith('dashboard', { section: 'active-devices' })
  open.mockClear()
- fireEvent.click(screen.getByRole('button', { name: /This Mac’s routing/ }))
+ fireEvent.click(screen.getByRole('button', { name: /This Mac’s routing details/ }))
  expect(open).not.toHaveBeenCalled()
  expect(screen.getByText('Applies to this Mac only. LAN devices keep their own routing settings.')).toBeTruthy()
  fireEvent.click(screen.getByRole('button', { name: 'Configure in desktop window' }))
@@ -50,6 +52,23 @@ it('shows live rates, counts active downstream devices, and expands details befo
  fireEvent.click(screen.getByRole('button', { name: /connections for Apple TV/ }))
  expect(open).toHaveBeenCalledWith('connections', { owner: 'device:tv' })
  expect(document.body.textContent).not.toMatch(/[\u3400-\u9fff]/)
+})
+
+it('switches this Mac between bypass and direct routing without opening the desktop window', async () => {
+ const open = vi.fn()
+ await act(async () => { render(<TrayActivity gateway="running" onOpen={open} />) })
+ const bypass = screen.getByRole('button', { name: 'Bypass' }) as HTMLButtonElement
+ const direct = screen.getByRole('button', { name: 'Direct' }) as HTMLButtonElement
+ expect(bypass.getAttribute('aria-pressed')).toBe('true')
+ expect(direct.getAttribute('aria-pressed')).toBe('false')
+ await act(async () => { fireEvent.click(direct) })
+ expect(api.setLocalRouting).toHaveBeenCalledWith('direct')
+ expect(direct.getAttribute('aria-pressed')).toBe('true')
+ expect(bypass.getAttribute('aria-pressed')).toBe('false')
+ expect(open).not.toHaveBeenCalled()
+ await act(async () => { fireEvent.click(bypass) })
+ expect(api.setLocalRouting).toHaveBeenCalledWith('rule')
+ expect(bypass.getAttribute('aria-pressed')).toBe('true')
 })
 
 it('pauses renderer reads but displays retained native history immediately on reopening', async () => {

@@ -1,7 +1,15 @@
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
 #import <objc/runtime.h>
+#include <ifaddrs.h>
+#include <mach/mach.h>
+#include <mach/mach_host.h>
 #include <math.h>
+#include <net/if.h>
+#include <net/if_dl.h>
+#include <stdint.h>
+#include <string.h>
+#include <sys/socket.h>
 
 static const char guardKey;
 static BOOL presentingMainWindow;
@@ -422,6 +430,24 @@ static __weak NSStatusBarButton *menuBarButton;
 static NSImage *menuBarBrandImage;
 static NSString *menuBarIndicator = @"connecting";
 static NSString *menuBarDescription = @"OpenSurge";
+static NSString *menuBarTraffic = @"";
+
+static void applyMenuBarButtonLayout(NSStatusBarButton *button) {
+    BOOL hasTitle = button.title.length > 0;
+    button.imagePosition = hasTitle ? NSImageLeft : NSImageOnly;
+    if (hasTitle) {
+        button.font = [NSFont monospacedSystemFontOfSize:11 weight:NSFontWeightMedium];
+    }
+}
+
+void setOpenSurgeMenuBarTraffic(const char *title) {
+    NSString *next = title ? [NSString stringWithUTF8String:title] : @"";
+    if ([menuBarTraffic isEqualToString:next] && menuBarButton && [menuBarButton.title isEqualToString:next]) return;
+    menuBarTraffic = next;
+    if (!menuBarButton) return;
+    menuBarButton.title = menuBarTraffic;
+    applyMenuBarButtonLayout(menuBarButton);
+}
 
 void setOpenSurgeMenuBarIndicator(const char *indicator, const char *description) {
     NSString *next = [NSString stringWithUTF8String:indicator];
@@ -465,11 +491,12 @@ void configureOpenSurgeMenuBarIcon(void) {
                 image.template = YES;
                 button.imageScaling = NSImageScaleNone;
                 // Match the Swift host: stopped/offline dim the same brand
-                // image, without text badges or a wider status item.
+                // image. Live Mac download rate sits beside the icon when sampled.
                 button.alphaValue = [menuBarIndicator isEqualToString:@"connecting"] ? 0.75 :
                     [menuBarIndicator isEqualToString:@"stopped"] ? 0.55 :
                     [menuBarIndicator isEqualToString:@"unreachable"] ? 0.35 : 1.0;
-                button.imagePosition = NSImageOnly;
+                if (menuBarTraffic.length) button.title = menuBarTraffic;
+                applyMenuBarButtonLayout(button);
                 button.toolTip = menuBarDescription;
                 [button setAccessibilityLabel:menuBarDescription];
             }
@@ -480,4 +507,101 @@ void configureOpenSurgeMenuBarIcon(void) {
             method_setImplementation(class_getInstanceMethod(buttonClass, selector), sized);
         }
     });
+}
+
+static BOOL openSurgeSkipLink(const char *name, unsigned flags) {
+    if (flags & (IFF_LOOPBACK | IFF_POINTOPOINT)) return YES;
+    static const char *prefixes[] = {"awdl", "llw", "bridge", "gif", "stf", "ap", "anpi", "vmenet", "vmnet", "utun", NULL};
+    for (int i = 0; prefixes[i]; i++) {
+        size_t n = strlen(prefixes[i]);
+        if (strncmp(name, prefixes[i], n) == 0) return YES;
+    }
+    return NO;
+}
+
+uint64_t openSurgeLinkIbytes(void) {
+    struct ifaddrs *addrs = NULL;
+    if (getifaddrs(&addrs) != 0 || addrs == NULL) return 0;
+    uint64_t total = 0;
+    for (struct ifaddrs *ifa = addrs; ifa != NULL; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == NULL || ifa->ifa_addr->sa_family != AF_LINK || ifa->ifa_data == NULL) continue;
+        if (openSurgeSkipLink(ifa->ifa_name, ifa->ifa_flags)) continue;
+        struct if_data *data = (struct if_data *)ifa->ifa_data;
+        total += data->ifi_ibytes;
+    }
+    freeifaddrs(addrs);
+    return total;
+}
+
+int openSurgeHostCPU(unsigned long long *used, unsigned long long *total) {
+    if (used == NULL || total == NULL) return 0;
+    host_cpu_load_info_data_t info;
+    mach_msg_type_number_t count = HOST_CPU_LOAD_INFO_COUNT;
+    if (host_statistics(mach_host_self(), HOST_CPU_LOAD_INFO, (host_info_t)&info, &count) != KERN_SUCCESS) return 0;
+    unsigned long long busy = (unsigned long long)info.cpu_ticks[CPU_STATE_USER]
+        + (unsigned long long)info.cpu_ticks[CPU_STATE_SYSTEM]
+        + (unsigned long long)info.cpu_ticks[CPU_STATE_NICE];
+    unsigned long long idle = (unsigned long long)info.cpu_ticks[CPU_STATE_IDLE];
+    *used = busy;
+    *total = busy + idle;
+    return 1;
+}
+
+typedef struct CF_BRIDGED_TYPE(id) __IOHIDEventSystemClient *OpenSurgeHIDClient;
+typedef struct CF_BRIDGED_TYPE(id) __IOHIDServiceClient *OpenSurgeHIDService;
+typedef struct __IOHIDEvent *OpenSurgeHIDEvent;
+extern OpenSurgeHIDClient IOHIDEventSystemClientCreate(CFAllocatorRef);
+extern int IOHIDEventSystemClientSetMatching(OpenSurgeHIDClient, CFDictionaryRef);
+extern CFArrayRef IOHIDEventSystemClientCopyServices(OpenSurgeHIDClient);
+extern CFTypeRef IOHIDServiceClientCopyProperty(OpenSurgeHIDService, CFStringRef);
+extern OpenSurgeHIDEvent IOHIDServiceClientCopyEvent(OpenSurgeHIDService, int64_t, int32_t, int64_t);
+extern double IOHIDEventGetFloatValue(OpenSurgeHIDEvent, int32_t);
+
+enum {
+    kOpenSurgeHIDTemperature = 15,
+    kOpenSurgeHIDTemperatureField = kOpenSurgeHIDTemperature << 16
+};
+
+static BOOL openSurgeCPUSensorName(NSString *name) {
+    NSString *n = name.lowercaseString;
+    if (n.length == 0) return NO;
+    if ([n containsString:@"gpu"] || [n containsString:@"nand"] || [n containsString:@"battery"] || [n containsString:@"wifi"] || [n containsString:@"airport"] || [n containsString:@"tcal"]) return NO;
+    return [n containsString:@"cpu"] || [n containsString:@"pacc"] || [n containsString:@"eacc"] || [n containsString:@"tdie"];
+}
+
+int openSurgeCPUTempC(double *celsius) {
+    if (celsius == NULL) return 0;
+    static OpenSurgeHIDClient client;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        client = IOHIDEventSystemClientCreate(kCFAllocatorDefault);
+        if (client) {
+            NSDictionary *match = @{@"PrimaryUsagePage": @(0xff00), @"PrimaryUsage": @5};
+            IOHIDEventSystemClientSetMatching(client, (__bridge CFDictionaryRef)match);
+        }
+    });
+    if (!client) return 0;
+    CFArrayRef services = IOHIDEventSystemClientCopyServices(client);
+    if (!services) return 0;
+    double hottest = -1000;
+    CFIndex count = CFArrayGetCount(services);
+    for (CFIndex i = 0; i < count; i++) {
+        OpenSurgeHIDService service = (OpenSurgeHIDService)CFArrayGetValueAtIndex(services, i);
+        CFStringRef product = (CFStringRef)IOHIDServiceClientCopyProperty(service, CFSTR("Product"));
+        NSString *name = product ? (__bridge NSString *)product : @"";
+        BOOL cpu = openSurgeCPUSensorName(name);
+        if (product) CFRelease(product);
+        if (!cpu) continue;
+        OpenSurgeHIDEvent event = IOHIDServiceClientCopyEvent(service, kOpenSurgeHIDTemperature, 0, 0);
+        if (!event) continue;
+        double t = IOHIDEventGetFloatValue(event, kOpenSurgeHIDTemperatureField);
+        CFRelease(event);
+        if (t > 200 && t < 400) t -= 273.15;
+        if (t < 0 || t > 150) continue;
+        if (t > hottest) hottest = t;
+    }
+    CFRelease(services);
+    if (hottest < 0) return 0;
+    *celsius = hottest;
+    return 1;
 }

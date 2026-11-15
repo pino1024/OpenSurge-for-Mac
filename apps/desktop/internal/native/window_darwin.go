@@ -4,7 +4,7 @@ package native
 
 /*
 #cgo CFLAGS: -x objective-c -fobjc-arc
-#cgo LDFLAGS: -framework Cocoa -framework WebKit
+#cgo LDFLAGS: -framework Cocoa -framework WebKit -framework IOKit
 #include <stdlib.h>
 #include <stdbool.h>
 void configureOpenSurgeWindow(void *window, bool rememberFrame, bool tray);
@@ -14,6 +14,10 @@ bool openSurgeSystemUsesEnglish(void);
 void setOpenSurgeWindowAppearance(void *window, int preference);
 void configureOpenSurgeMenuBarIcon(void);
 void setOpenSurgeMenuBarIndicator(const char *indicator, const char *description);
+void setOpenSurgeMenuBarTraffic(const char *title);
+unsigned long long openSurgeLinkIbytes(void);
+int openSurgeHostCPU(unsigned long long *used, unsigned long long *total);
+int openSurgeCPUTempC(double *celsius);
 void setOpenSurgeDockVisible(bool visible);
 void refreshOpenSurgeDockVisibility(void);
 void presentOpenSurgeWindow(void *window);
@@ -93,6 +97,38 @@ func SetMenuBarIndicator(indicator, description string) {
 	label := C.CString(description)
 	defer C.free(unsafe.Pointer(label))
 	application.InvokeSync(func() { C.setOpenSurgeMenuBarIndicator(value, label) })
+}
+
+func SetMenuBarTraffic(title string) {
+	value := C.CString(title)
+	defer C.free(unsafe.Pointer(value))
+	application.InvokeSync(func() { C.setOpenSurgeMenuBarTraffic(value) })
+}
+
+// LinkInboundBytes is inbound octets on this Mac's physical NICs. Loopback
+// and point-to-point interfaces such as utun are omitted so TUN delivery is
+// not double-counted.
+func LinkInboundBytes() uint64 {
+	return uint64(C.openSurgeLinkIbytes())
+}
+
+// HostCPUTicks is this Mac's cumulative CPU ticks (user+system+nice vs all
+// states). Consecutive samples yield host-wide occupancy.
+func HostCPUTicks() (used, total uint64, ok bool) {
+	var usedTicks, totalTicks C.ulonglong
+	if C.openSurgeHostCPU(&usedTicks, &totalTicks) == 0 {
+		return 0, 0, false
+	}
+	return uint64(usedTicks), uint64(totalTicks), true
+}
+
+// CPUTempC is the hottest CPU-core HID temperature in Celsius.
+func CPUTempC() (float64, bool) {
+	var celsius C.double
+	if C.openSurgeCPUTempC(&celsius) == 0 {
+		return 0, false
+	}
+	return float64(celsius), true
 }
 
 func SetDockVisible(visible bool) {

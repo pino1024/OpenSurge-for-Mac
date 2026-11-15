@@ -43,6 +43,11 @@ type Status struct {
 	SleepPrevention  SleepPrevention    `json:"sleep_prevention"`
 	UIPreferences    struct {
 		Language string `json:"language"`
+		MenuBar  *struct {
+			Download    bool `json:"download"`
+			CPU         bool `json:"cpu"`
+			Temperature bool `json:"temperature"`
+		} `json:"menu_bar,omitempty"`
 	} `json:"ui_preferences"`
 }
 

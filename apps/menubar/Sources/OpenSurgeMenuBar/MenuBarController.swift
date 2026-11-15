@@ -82,10 +82,8 @@ final class OpenSurgeAppDelegate: NSObject, NSApplicationDelegate {
             presenter = MenuBarController(model: StatusModel())
         }
 
-        // Every process launch opens the same panel as the menu bar icon.
-        // This also makes the "登录时显示" setting literal: login-item
-        // launches present the panel instead of starting silently.
-        presenter?.showPanel()
+        // Login-item and first launches stay in the menu bar. The panel
+        // opens from the status item or Dock reopen.
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {

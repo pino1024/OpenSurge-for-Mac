@@ -8,6 +8,7 @@ import { activateLanguage, languageCacheKey, prepareLanguage } from '../i18n'
 import { selectOption } from '../test/select'
 import { SettingsApp } from './SettingsApp'
 import type { TraySnapshot } from '../tray/types'
+import type { UIPreferences } from '../types'
 
 vi.mock('../api', () => ({ api: { uiPreferences: vi.fn(), setUIPreferences: vi.fn() } }))
 vi.mock('../components/LANAccessCard', () => ({ LANAccessCard: () => <section aria-label="LAN Management" /> }))
@@ -20,7 +21,7 @@ beforeEach(async () => {
  window.localStorage.clear(); window.localStorage.setItem(languageCacheKey, 'en')
  await prepareLanguage('en'); activateLanguage('en')
  vi.mocked(api.uiPreferences).mockResolvedValue({ schema_version: 1, language: 'en' })
- vi.mocked(api.setUIPreferences).mockImplementation(async value => ({ schema_version: 1, ...value }))
+ vi.mocked(api.setUIPreferences).mockImplementation(async value => ({ schema_version: 1, language: 'en', ...value } as UIPreferences))
  vi.mocked(desktopAction).mockImplementation(async action => action === 'utilities' ? initial : action === 'menubar-status' ? runtime : {})
 })
 afterEach(() => { cleanup(); vi.resetAllMocks(); window.localStorage.clear(); activateLanguage('zh-Hans') })
@@ -44,6 +45,17 @@ it('publishes language only after saving, fences stale reads, and preserves it o
  await selectOption(screen.getByRole('combobox', { name: '界面语言' }), 'en')
  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'save unavailable')
  expect(window.localStorage.getItem(languageCacheKey)).toBe('zh-Hans')
+})
+
+it('saves menu bar meters without changing language', async () => {
+ render(<SettingsApp />)
+ await screen.findByRole('heading', { name: 'OpenSurge Settings' })
+ const cpu = await screen.findByRole('switch', { name: 'CPU usage' })
+ expect((cpu as HTMLInputElement).checked).toBe(true)
+ fireEvent.click(cpu)
+ await waitFor(() => expect(api.setUIPreferences).toHaveBeenCalledWith({ menu_bar: { download: true, cpu: false, temperature: true } }))
+ expect(api.setUIPreferences).not.toHaveBeenCalledWith(expect.objectContaining({ language: expect.anything() }))
+ expect(desktopAction).toHaveBeenCalledWith('menubar-status', { refresh: true })
 })
 
 it('shares appearance and language with other windows, including System appearance', async () => {
@@ -73,8 +85,8 @@ it('uses native login approval and update results without fabricating success', 
   return {}
  })
  render(<SettingsApp />)
- await waitFor(() => expect((screen.getByRole('switch', { name: 'Show at login' }) as HTMLInputElement).disabled).toBe(false))
- fireEvent.click(screen.getByRole('switch', { name: 'Show at login' }))
+ await waitFor(() => expect((screen.getByRole('switch', { name: 'Start at login' }) as HTMLInputElement).disabled).toBe(false))
+ fireEvent.click(screen.getByRole('switch', { name: 'Start at login' }))
  expect(await screen.findByText('Waiting for macOS approval of the login item.')).toBeTruthy()
  await userEvent.click(screen.getByRole('button', { name: 'Open Login Items settings' }))
  expect(desktopAction).toHaveBeenCalledWith('login-settings', {})
@@ -82,7 +94,7 @@ it('uses native login approval and update results without fabricating success', 
  await userEvent.click(await screen.findByRole('button', { name: 'Open stable release v0.2.5 download page' }))
  expect(desktopAction).toHaveBeenCalledWith('open-external', { url })
  await act(async () => window.dispatchEvent(new Event('opensurge:refresh')))
- expect((screen.getByRole('switch', { name: 'Show at login' }) as HTMLInputElement).checked).toBe(true)
+ expect((screen.getByRole('switch', { name: 'Start at login' }) as HTMLInputElement).checked).toBe(true)
  expect(screen.getByRole('button', { name: /download page/ })).toBeTruthy()
 })
 
@@ -111,8 +123,8 @@ it('lets a missing login item retry registration and shows the native failure wi
   return {}
  })
  render(<SettingsApp />)
- await screen.findByText('macOS could not find a login item for this version. Turn on Show at login to register it again.')
- const toggle = screen.getByRole('switch', { name: 'Show at login' }) as HTMLInputElement
+ await screen.findByText('macOS could not find a login item for this version. Turn on Start at login to register it again.')
+ const toggle = screen.getByRole('switch', { name: 'Start at login' }) as HTMLInputElement
  expect(toggle.disabled || toggle.checked).toBe(false)
  expect(attempt).toBe(0)
  expect(screen.queryByText('This App cannot manage login items. Configure them from the installed application.')).toBeNull()
@@ -134,7 +146,7 @@ it('keeps login management disabled when the host does not provide it', async ()
   : action === 'menubar-status' ? runtime : {})
  render(<SettingsApp />)
  await screen.findByText('This App cannot manage login items. Configure them from the installed application.')
- expect((screen.getByRole('switch', { name: 'Show at login' }) as HTMLInputElement).disabled).toBe(true)
+ expect((screen.getByRole('switch', { name: 'Start at login' }) as HTMLInputElement).disabled).toBe(true)
  expect(vi.mocked(desktopAction).mock.calls.some(([action]) => action === 'login-item')).toBe(false)
 })
 

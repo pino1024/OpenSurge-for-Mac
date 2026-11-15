@@ -44,7 +44,7 @@ func main() {
 		log.Fatal("Invalid Control Service directory")
 	}
 	ready := make(chan struct{})
-	host := &desktopHost{client: controlclient.New(directory)}
+	host := &desktopHost{client: controlclient.New(directory), menuBarShow: trayactivity.DefaultMenuBarShow()}
 	if *smokeActions && directory == defaultDirectory {
 		log.Fatal("Smoke actions require an isolated --control-dir")
 	}
@@ -158,7 +158,10 @@ func main() {
 			native.SetLanguage(window, language == "en")
 			native.SetLanguage(host.settings, language == "en")
 		}
-		host.show("")
+		// Login-item and first launches stay in the menu bar. Present the
+		// dashboard only on Dock reopen, a second instance, or an explicit
+		// tray/settings action.
+		native.RefreshDockVisibility()
 		close(ready)
 		go func() {
 			// Only the installed bundle wakes the installed user job on launch.
@@ -174,6 +177,7 @@ func main() {
 		}()
 		go host.updates.Run(lifetime)
 		go host.activity.Run(lifetime)
+		go host.runMenuBarTraffic(lifetime)
 	})
 	host.setMenu(false)
 	if err := app.Run(); err != nil {

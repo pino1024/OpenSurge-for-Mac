@@ -768,20 +768,46 @@ func (s *Server) handleUIPreferences(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, preferences)
 		return
 	}
-	var preferences UIPreferences
-	if err := decodeJSON(r, &preferences, 4<<10); err != nil {
+	var patch struct {
+		Language *string `json:"language"`
+		MenuBar  *struct {
+			Download    *bool `json:"download"`
+			CPU         *bool `json:"cpu"`
+			Temperature *bool `json:"temperature"`
+		} `json:"menu_bar"`
+	}
+	if err := decodeJSON(r, &patch, 4<<10); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	if !validUILanguage(preferences.Language) {
-		writeError(w, http.StatusUnprocessableEntity, "ui_language_unsupported", "language must be system, zh-Hans, or en")
+	preferences, err := s.store.UIPreferences()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "ui_preferences_read_failed", err.Error())
 		return
+	}
+	if patch.Language != nil {
+		if !validUILanguage(*patch.Language) {
+			writeError(w, http.StatusUnprocessableEntity, "ui_language_unsupported", "language must be system, zh-Hans, or en")
+			return
+		}
+		preferences.Language = *patch.Language
+	}
+	if patch.MenuBar != nil {
+		if patch.MenuBar.Download != nil {
+			preferences.MenuBar.Download = *patch.MenuBar.Download
+		}
+		if patch.MenuBar.CPU != nil {
+			preferences.MenuBar.CPU = *patch.MenuBar.CPU
+		}
+		if patch.MenuBar.Temperature != nil {
+			preferences.MenuBar.Temperature = *patch.MenuBar.Temperature
+		}
 	}
 	if err := s.store.SaveUIPreferences(preferences); err != nil {
 		writeError(w, http.StatusInternalServerError, "ui_preferences_write_failed", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, UIPreferences{SchemaVersion: SchemaVersion, Language: preferences.Language})
+	writeJSON(w, http.StatusOK, preferences)
 }
 
 func (s *Server) handleSleepPrevention(w http.ResponseWriter, r *http.Request) {

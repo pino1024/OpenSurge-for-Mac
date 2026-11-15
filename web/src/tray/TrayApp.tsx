@@ -3,8 +3,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { copyText, desktopAction, isDesktop } from '../desktop'
 import { activateLanguage, cacheRequestedLanguage, initialRequestedLanguage, isRequestedLanguage, prepareLanguage, t } from '../i18n'
 import { useTheme } from '../hooks/useTheme'
+import { api } from '../api'
 import { gatewayIsTransitioning, gatewayStatusDetail, gatewayStatusLabel, recoveryLabel, statusLabel, takeoverLabel } from '../status'
-import type { SleepPreventionStatus } from '../types'
+import type { MenuBarIndicators, SleepPreventionStatus } from '../types'
 import { isWindowVisible, watchVisibleRefresh } from '../visibility'
 import type { MenuBarStatus, TraySnapshot } from './types'
 import { TrayUtilities } from './TrayUtilities'
@@ -12,6 +13,15 @@ import { TrayActivity } from './TrayActivity'
 import './tray.css'
 
 const initial: TraySnapshot = { status: null, indicator: 'connecting', sequence: 0, can_quit: false }
+const defaultMenuBarMetrics: MenuBarIndicators = { download: true, cpu: true, temperature: true }
+
+function menuBarMetrics(status: MenuBarStatus | null): MenuBarIndicators {
+ return {
+  download: status?.ui_preferences.menu_bar?.download ?? defaultMenuBarMetrics.download,
+  cpu: status?.ui_preferences.menu_bar?.cpu ?? defaultMenuBarMetrics.cpu,
+  temperature: status?.ui_preferences.menu_bar?.temperature ?? defaultMenuBarMetrics.temperature,
+ }
+}
 
 export function diagnosticSummary(status: MenuBarStatus | null): string {
  if (!status) return 'OpenSurge Control API: unreachable'
@@ -54,6 +64,8 @@ export function TrayApp({ menuOnly = false }: { menuOnly?: boolean } = {}) {
  const [error, setError] = useState('')
  const [copied, setCopied] = useState(false)
  const [sleepBusy, setSleepBusy] = useState(false)
+ const [metricsOverride, setMetricsOverride] = useState<MenuBarIndicators | null>(null)
+ const metricsBusy = useRef(false)
  const [refreshing, setRefreshing] = useState(false)
  const [serviceBusy, setServiceBusy] = useState(false)
  const [browserBusy, setBrowserBusy] = useState(false)
@@ -113,6 +125,23 @@ export function TrayApp({ menuOnly = false }: { menuOnly?: boolean } = {}) {
   await run(() => desktopAction(action, action === 'quit' ? { full } : {}))
   setServiceBusy(false)
   await refresh(true)
+ }
+ const changeMetric = async (key: keyof MenuBarIndicators, value: boolean) => {
+  if (metricsBusy.current || !snapshot.status) return
+  metricsBusy.current = true
+  const next = { ...menuBarMetrics(snapshot.status), ...metricsOverride, [key]: value }
+  setMetricsOverride(next)
+  await run(async () => {
+   const saved = await api.setUIPreferences({ menu_bar: next })
+   setMetricsOverride({
+    download: saved.menu_bar?.download ?? next.download,
+    cpu: saved.menu_bar?.cpu ?? next.cpu,
+    temperature: saved.menu_bar?.temperature ?? next.temperature,
+   })
+   await refresh(true)
+  })
+  setMetricsOverride(null)
+  metricsBusy.current = false
  }
  const changeSleep = async (enabled: boolean) => {
   if (sleepPending.current) return
@@ -183,6 +212,12 @@ export function TrayApp({ menuOnly = false }: { menuOnly?: boolean } = {}) {
     </div>
    </section>
    <section className="tray-preferences">
+    <p className="tray-caption">{t('菜单栏指标')}</p>
+    {(['download', 'cpu', 'temperature'] as const).map(key => {
+     const label = key === 'download' ? t('下行速率') : key === 'cpu' ? t('CPU 占用') : t('CPU 温度')
+     const metrics = metricsOverride ?? menuBarMetrics(status)
+     return <label key={key}><span>{label}</span><input type="checkbox" role="switch" aria-label={label} checked={metrics[key]} disabled={!status} onChange={event => void changeMetric(key, event.target.checked)} /></label>
+    })}
     <label><span>{t('合盖保持运行')}<small>{t('默认关闭 · 本次运行有效')}</small></span><input type="checkbox" role="switch" aria-label={t('合盖保持运行')} checked={status?.sleep_prevention.active ?? false} disabled={!status || sleepBusy} onChange={event => void changeSleep(event.target.checked)} /></label>
     {status?.sleep_prevention.active && <p className="tray-notice warning">{t('合盖后仍会运行，请注意耗电与散热，不要放入不通风的包内。')}</p>}
     {status?.sleep_prevention.error && <p role="alert" className="tray-error">{status.sleep_prevention.error}</p>}
