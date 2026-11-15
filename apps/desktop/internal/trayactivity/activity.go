@@ -98,6 +98,11 @@ func FormatCPUPercent(percent float64) string {
 	return strings.ReplaceAll(fmt.Sprintf("%3d%%", n), " ", "\u2007")
 }
 
+// FormatMemoryPercent is the same 4-character percent width as CPU.
+func FormatMemoryPercent(percent float64) string {
+	return FormatCPUPercent(percent)
+}
+
 // FormatCPUTemp is a fixed 4-character CPU-core temperature (` 42C`, `100C`).
 func FormatCPUTemp(celsius float64, ok bool) string {
 	if !ok || math.IsNaN(celsius) {
@@ -117,21 +122,25 @@ func FormatCPUTemp(celsius float64, ok bool) string {
 type MenuBarShow struct {
 	Download    bool
 	CPU         bool
+	Memory      bool
 	Temperature bool
 }
 
 func DefaultMenuBarShow() MenuBarShow {
-	return MenuBarShow{Download: true, CPU: true, Temperature: true}
+	return MenuBarShow{Download: true, CPU: true, Memory: true, Temperature: true}
 }
 
-// FormatMenuBarStats is the combined menubar label: rate, host CPU, core temp.
-func FormatMenuBarStats(bytesPerSecond int64, cpuPercent, tempC float64, tempOK bool, show MenuBarShow) string {
+// FormatMenuBarStats is the combined menubar label: rate, CPU, memory, core temp.
+func FormatMenuBarStats(bytesPerSecond int64, cpuPercent, memPercent, tempC float64, tempOK bool, show MenuBarShow) string {
 	var parts []string
 	if show.Download {
 		parts = append(parts, FormatDownloadRate(bytesPerSecond))
 	}
 	if show.CPU {
 		parts = append(parts, FormatCPUPercent(cpuPercent))
+	}
+	if show.Memory {
+		parts = append(parts, FormatMemoryPercent(memPercent))
 	}
 	if show.Temperature {
 		parts = append(parts, FormatCPUTemp(tempC, tempOK))

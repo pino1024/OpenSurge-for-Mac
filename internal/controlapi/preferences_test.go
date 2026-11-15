@@ -44,7 +44,7 @@ func TestUIPreferencesDefaultToSystemAndPersistLanguage(t *testing.T) {
 	}
 
 	overview := performAuthorized(server, http.MethodGet, "/api/v1/overview", nil)
-	want := `"ui_preferences":{"schema_version":1,"language":"en","menu_bar":{"download":true,"cpu":true,"temperature":true}}`
+	want := `"ui_preferences":{"schema_version":1,"language":"en","menu_bar":{"download":true,"cpu":true,"memory":true,"temperature":true}}`
 	if overview.Code != http.StatusOK || !strings.Contains(overview.Body.String(), want) {
 		t.Fatalf("overview preferences status=%d body=%s", overview.Code, overview.Body.String())
 	}
@@ -65,8 +65,23 @@ func TestUIPreferencesMergeMenuBarWithoutResettingLanguage(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &preferences); err != nil {
 		t.Fatal(err)
 	}
-	if preferences.Language != UILanguageEN || !preferences.MenuBar.Download || preferences.MenuBar.CPU || !preferences.MenuBar.Temperature {
+	if preferences.Language != UILanguageEN || !preferences.MenuBar.Download || preferences.MenuBar.CPU || !preferences.MenuBar.Memory || !preferences.MenuBar.Temperature {
 		t.Fatalf("merged preferences=%+v", preferences)
+	}
+}
+
+func TestUIPreferencesDefaultMemoryWhenOmitted(t *testing.T) {
+	server := newTestServer(t)
+	path := filepath.Join(server.store.Dir(), "preferences.json")
+	if err := os.WriteFile(path, []byte(`{"schema_version":1,"language":"en","menu_bar":{"download":true,"cpu":true,"temperature":false}}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	preferences, err := server.store.UIPreferences()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !preferences.MenuBar.Download || !preferences.MenuBar.CPU || !preferences.MenuBar.Memory || preferences.MenuBar.Temperature {
+		t.Fatalf("omitted memory should default on: %+v", preferences.MenuBar)
 	}
 }
 

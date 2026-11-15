@@ -53,7 +53,7 @@ it('saves menu bar meters without changing language', async () => {
  const cpu = await screen.findByRole('switch', { name: 'CPU usage' })
  expect((cpu as HTMLInputElement).checked).toBe(true)
  fireEvent.click(cpu)
- await waitFor(() => expect(api.setUIPreferences).toHaveBeenCalledWith({ menu_bar: { download: true, cpu: false, temperature: true } }))
+ await waitFor(() => expect(api.setUIPreferences).toHaveBeenCalledWith({ menu_bar: { download: true, cpu: false, memory: true, temperature: true } }))
  expect(api.setUIPreferences).not.toHaveBeenCalledWith(expect.objectContaining({ language: expect.anything() }))
  expect(desktopAction).toHaveBeenCalledWith('menubar-status', { refresh: true })
 })

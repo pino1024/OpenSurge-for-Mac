@@ -2,6 +2,17 @@ package native
 
 import "testing"
 
+func TestHostMemoryPercent(t *testing.T) {
+	p, ok := HostMemoryPercent()
+	if !ok {
+		t.Fatal("host memory statistics unavailable")
+	}
+	if p < 1 || p > 100 {
+		t.Fatalf("implausible memory percent %.1f", p)
+	}
+	t.Logf("host memory %.1f%%", p)
+}
+
 func TestCPUTempC(t *testing.T) {
 	c, ok := CPUTempC()
 	if !ok {

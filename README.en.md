@@ -64,7 +64,7 @@ Changes relative to upstream:
 
 - Menu bar shows **this Mac’s total download rate** (physical NIC traffic, proxy and direct alike; not downstream bypass-router traffic)
 - Fixed-width rate text without `/s`, so the label does not jump in length
-- Optional menu-bar **CPU occupancy** and **CPU core temperature**
+- Optional menu-bar **CPU occupancy**, **memory percent**, and **CPU core temperature**
 - Tray-panel switches to choose which meters are shown; Settings has the same controls
 - Login-item launch no longer pops a window; the menu bar stays quiet
 

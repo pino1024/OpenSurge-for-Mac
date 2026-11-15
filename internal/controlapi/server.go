@@ -773,6 +773,7 @@ func (s *Server) handleUIPreferences(w http.ResponseWriter, r *http.Request) {
 		MenuBar  *struct {
 			Download    *bool `json:"download"`
 			CPU         *bool `json:"cpu"`
+			Memory      *bool `json:"memory"`
 			Temperature *bool `json:"temperature"`
 		} `json:"menu_bar"`
 	}
@@ -798,6 +799,9 @@ func (s *Server) handleUIPreferences(w http.ResponseWriter, r *http.Request) {
 		}
 		if patch.MenuBar.CPU != nil {
 			preferences.MenuBar.CPU = *patch.MenuBar.CPU
+		}
+		if patch.MenuBar.Memory != nil {
+			preferences.MenuBar.Memory = *patch.MenuBar.Memory
 		}
 		if patch.MenuBar.Temperature != nil {
 			preferences.MenuBar.Temperature = *patch.MenuBar.Temperature

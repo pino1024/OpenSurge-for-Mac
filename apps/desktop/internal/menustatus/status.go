@@ -46,6 +46,7 @@ type Status struct {
 		MenuBar  *struct {
 			Download    bool `json:"download"`
 			CPU         bool `json:"cpu"`
+			Memory      bool `json:"memory"`
 			Temperature bool `json:"temperature"`
 		} `json:"menu_bar,omitempty"`
 	} `json:"ui_preferences"`

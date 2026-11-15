@@ -17,6 +17,7 @@ void setOpenSurgeMenuBarIndicator(const char *indicator, const char *description
 void setOpenSurgeMenuBarTraffic(const char *title);
 unsigned long long openSurgeLinkIbytes(void);
 int openSurgeHostCPU(unsigned long long *used, unsigned long long *total);
+int openSurgeHostMemory(double *percent);
 int openSurgeCPUTempC(double *celsius);
 void setOpenSurgeDockVisible(bool visible);
 void refreshOpenSurgeDockVisibility(void);
@@ -120,6 +121,15 @@ func HostCPUTicks() (used, total uint64, ok bool) {
 		return 0, 0, false
 	}
 	return uint64(usedTicks), uint64(totalTicks), true
+}
+
+// HostMemoryPercent is wired + active + compressed pages over physical RAM.
+func HostMemoryPercent() (float64, bool) {
+	var percent C.double
+	if C.openSurgeHostMemory(&percent) == 0 {
+		return 0, false
+	}
+	return float64(percent), true
 }
 
 // CPUTempC is the hottest CPU-core HID temperature in Celsius.

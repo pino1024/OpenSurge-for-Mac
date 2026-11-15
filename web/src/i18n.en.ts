@@ -1716,6 +1716,7 @@ export const englishMessages: Record<string, string> = {
   '显示在菜单栏图标旁边，可任意开关。': 'Shown beside the menu bar icon. Turn each meter on or off.',
   '下行速率': 'Download rate',
   'CPU 占用': 'CPU usage',
+  '内存占用': 'Memory usage',
   'CPU 温度': 'CPU temperature',
   '登录 Mac 后在后台启动，不打开窗口。': 'Start OpenSurge in the background when you log in to your Mac.',
   '软件更新': 'Software update',

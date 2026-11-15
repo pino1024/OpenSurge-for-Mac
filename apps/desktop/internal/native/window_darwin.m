@@ -10,6 +10,8 @@
 #include <stdint.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/sysctl.h>
+#include <unistd.h>
 
 static const char guardKey;
 static BOOL presentingMainWindow;
@@ -544,6 +546,21 @@ int openSurgeHostCPU(unsigned long long *used, unsigned long long *total) {
     unsigned long long idle = (unsigned long long)info.cpu_ticks[CPU_STATE_IDLE];
     *used = busy;
     *total = busy + idle;
+    return 1;
+}
+
+int openSurgeHostMemory(double *percent) {
+    if (percent == NULL) return 0;
+    vm_statistics64_data_t info;
+    mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+    if (host_statistics64(mach_host_self(), HOST_VM_INFO64, (host_info64_t)&info, &count) != KERN_SUCCESS) return 0;
+    uint64_t total = 0;
+    size_t len = sizeof(total);
+    if (sysctlbyname("hw.memsize", &total, &len, NULL, 0) != 0 || total == 0) return 0;
+    uint64_t page = (uint64_t)getpagesize();
+    uint64_t used = ((uint64_t)info.active_count + (uint64_t)info.wire_count + (uint64_t)info.compressor_page_count) * page;
+    if (used > total) used = total;
+    *percent = 100.0 * (double)used / (double)total;
     return 1;
 }
 

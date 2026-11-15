@@ -17,7 +17,7 @@ beforeEach(async () => {
  await prepareLanguage('en'); activateLanguage('en')
  vi.mocked(isDesktop).mockReturnValue(false)
  vi.mocked(desktopAction).mockImplementation(async () => fixture)
- vi.mocked(api.setUIPreferences).mockImplementation(async value => ({ schema_version: 1, language: 'en', menu_bar: { download: true, cpu: true, temperature: true, ...value.menu_bar } }))
+ vi.mocked(api.setUIPreferences).mockImplementation(async value => ({ schema_version: 1, language: 'en', menu_bar: { download: true, cpu: true, memory: true, temperature: true, ...value.menu_bar } }))
 })
 afterEach(() => { cleanup(); vi.clearAllMocks(); activateLanguage('zh-Hans'); localStorage.clear(); delete window.__opensurgeWindowVisible })
 
@@ -179,7 +179,7 @@ it('toggles menu bar meters from the panel switches', async () => {
  const cpu = screen.getByRole('switch', { name: 'CPU usage' }) as HTMLInputElement
  expect(cpu.checked).toBe(true)
  await userEvent.click(cpu)
- await waitFor(() => expect(api.setUIPreferences).toHaveBeenCalledWith({ menu_bar: { download: true, cpu: false, temperature: true } }))
+ await waitFor(() => expect(api.setUIPreferences).toHaveBeenCalledWith({ menu_bar: { download: true, cpu: false, memory: true, temperature: true } }))
  expect(desktopAction).toHaveBeenCalledWith('menubar-status', { refresh: true })
 })
 

@@ -24,7 +24,7 @@ func (h *desktopHost) runMenuBarTraffic(ctx context.Context) {
 	var previous uint64
 	var sampledAt time.Time
 	var prevCPUUsed, prevCPUTotal uint64
-	var cpuPercent float64
+	var cpuPercent, memPercent float64
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
@@ -42,6 +42,9 @@ func (h *desktopHost) runMenuBarTraffic(ctx context.Context) {
 				if cpuOK {
 					prevCPUUsed, prevCPUTotal = cpuUsed, cpuTotal
 				}
+				if next, ok := native.HostMemoryPercent(); ok {
+					memPercent = next
+				}
 				continue
 			}
 			elapsed := now.Sub(sampledAt).Seconds()
@@ -56,12 +59,15 @@ func (h *desktopHost) runMenuBarTraffic(ctx context.Context) {
 				}
 				prevCPUUsed, prevCPUTotal = cpuUsed, cpuTotal
 			}
+			if next, ok := native.HostMemoryPercent(); ok {
+				memPercent = next
+			}
 			var tempC float64
 			var tempOK bool
 			if show.Temperature {
 				tempC, tempOK = native.CPUTempC()
 			}
-			native.SetMenuBarTraffic(trayactivity.FormatMenuBarStats(trayactivity.MacDownloadRate(link, h.activity.Snapshot()), cpuPercent, tempC, tempOK, show))
+			native.SetMenuBarTraffic(trayactivity.FormatMenuBarStats(trayactivity.MacDownloadRate(link, h.activity.Snapshot()), cpuPercent, memPercent, tempC, tempOK, show))
 		}
 	}
 }
@@ -117,6 +123,7 @@ func (h *desktopHost) menuStatusChanged(snapshot menustatus.Snapshot) {
 			h.menuBarShow = trayactivity.MenuBarShow{
 				Download:    status.UIPreferences.MenuBar.Download,
 				CPU:         status.UIPreferences.MenuBar.CPU,
+				Memory:      status.UIPreferences.MenuBar.Memory,
 				Temperature: status.UIPreferences.MenuBar.Temperature,
 			}
 		}

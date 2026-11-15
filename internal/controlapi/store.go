@@ -55,7 +55,7 @@ func (s *Store) Token() (string, error) {
 }
 
 func defaultMenuBarIndicators() MenuBarIndicators {
-	return MenuBarIndicators{Download: true, CPU: true, Temperature: true}
+	return MenuBarIndicators{Download: true, CPU: true, Memory: true, Temperature: true}
 }
 
 func defaultUIPreferences() UIPreferences {

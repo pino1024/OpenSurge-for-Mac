@@ -13,12 +13,13 @@ import { TrayActivity } from './TrayActivity'
 import './tray.css'
 
 const initial: TraySnapshot = { status: null, indicator: 'connecting', sequence: 0, can_quit: false }
-const defaultMenuBarMetrics: MenuBarIndicators = { download: true, cpu: true, temperature: true }
+const defaultMenuBarMetrics: MenuBarIndicators = { download: true, cpu: true, memory: true, temperature: true }
 
 function menuBarMetrics(status: MenuBarStatus | null): MenuBarIndicators {
  return {
   download: status?.ui_preferences.menu_bar?.download ?? defaultMenuBarMetrics.download,
   cpu: status?.ui_preferences.menu_bar?.cpu ?? defaultMenuBarMetrics.cpu,
+  memory: status?.ui_preferences.menu_bar?.memory ?? defaultMenuBarMetrics.memory,
   temperature: status?.ui_preferences.menu_bar?.temperature ?? defaultMenuBarMetrics.temperature,
  }
 }
@@ -136,6 +137,7 @@ export function TrayApp({ menuOnly = false }: { menuOnly?: boolean } = {}) {
    setMetricsOverride({
     download: saved.menu_bar?.download ?? next.download,
     cpu: saved.menu_bar?.cpu ?? next.cpu,
+    memory: saved.menu_bar?.memory ?? next.memory,
     temperature: saved.menu_bar?.temperature ?? next.temperature,
    })
    await refresh(true)
@@ -213,8 +215,8 @@ export function TrayApp({ menuOnly = false }: { menuOnly?: boolean } = {}) {
    </section>
    <section className="tray-preferences">
     <p className="tray-caption">{t('菜单栏指标')}</p>
-    {(['download', 'cpu', 'temperature'] as const).map(key => {
-     const label = key === 'download' ? t('下行速率') : key === 'cpu' ? t('CPU 占用') : t('CPU 温度')
+    {(['download', 'cpu', 'memory', 'temperature'] as const).map(key => {
+     const label = key === 'download' ? t('下行速率') : key === 'cpu' ? t('CPU 占用') : key === 'memory' ? t('内存占用') : t('CPU 温度')
      const metrics = metricsOverride ?? menuBarMetrics(status)
      return <label key={key}><span>{label}</span><input type="checkbox" role="switch" aria-label={label} checked={metrics[key]} disabled={!status} onChange={event => void changeMetric(key, event.target.checked)} /></label>
     })}

@@ -1,6 +1,7 @@
 package controlapi
 
 import (
+	"encoding/json"
 	"time"
 
 	"open-mihomo-gateway/internal/device"
@@ -106,7 +107,18 @@ type UIPreferences struct {
 type MenuBarIndicators struct {
 	Download    bool `json:"download"`
 	CPU         bool `json:"cpu"`
+	Memory      bool `json:"memory"`
 	Temperature bool `json:"temperature"`
+}
+
+func (m *MenuBarIndicators) UnmarshalJSON(data []byte) error {
+	type plain MenuBarIndicators
+	next := plain(defaultMenuBarIndicators())
+	if err := json.Unmarshal(data, &next); err != nil {
+		return err
+	}
+	*m = MenuBarIndicators(next)
+	return nil
 }
 
 type MihomoRecoveryStatus struct {

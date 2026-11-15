@@ -21,7 +21,7 @@ export function SettingsApp() {
  const [, , preference, setPreference] = useTheme()
  const { state, busy: utilityBusy, error: utilityError, setError: setUtilityError, check, changeLogin, openLink, uninstall } = useDesktopUtilities()
  const { snapshot, busy: runtimeBusy, error: runtimeError, changeSleep, quit } = useDesktopRuntime()
- const [metrics, setMetrics] = useState<MenuBarIndicators>({ download: true, cpu: true, temperature: true })
+ const [metrics, setMetrics] = useState<MenuBarIndicators>({ download: true, cpu: true, memory: true, temperature: true })
  const metricsBusy = useRef(false)
  const busy = utilityBusy || runtimeBusy
  const login = state?.login
@@ -46,6 +46,7 @@ export function SettingsApp() {
    setMetrics({
     download: value.menu_bar?.download ?? true,
     cpu: value.menu_bar?.cpu ?? true,
+    memory: value.menu_bar?.memory ?? true,
     temperature: value.menu_bar?.temperature ?? true,
    })
   }
@@ -67,6 +68,7 @@ export function SettingsApp() {
    setMetrics({
     download: saved.menu_bar?.download ?? next.download,
     cpu: saved.menu_bar?.cpu ?? next.cpu,
+    memory: saved.menu_bar?.memory ?? next.memory,
     temperature: saved.menu_bar?.temperature ?? next.temperature,
    })
    void desktopAction('menubar-status', { refresh: true }).catch(() => {})
@@ -91,6 +93,7 @@ export function SettingsApp() {
    <div className="settings-row"><span>{t('菜单栏指标')}<small>{t('显示在菜单栏图标旁边，可任意开关。')}</small></span></div>
    <label className="settings-row"><span>{t('下行速率')}</span><input type="checkbox" role="switch" aria-label={t('下行速率')} checked={metrics.download} disabled={busy} onChange={event => void changeMetric('download', event.target.checked)} /></label>
    <label className="settings-row"><span>{t('CPU 占用')}</span><input type="checkbox" role="switch" aria-label={t('CPU 占用')} checked={metrics.cpu} disabled={busy} onChange={event => void changeMetric('cpu', event.target.checked)} /></label>
+   <label className="settings-row"><span>{t('内存占用')}</span><input type="checkbox" role="switch" aria-label={t('内存占用')} checked={metrics.memory} disabled={busy} onChange={event => void changeMetric('memory', event.target.checked)} /></label>
    <label className="settings-row"><span>{t('CPU 温度')}</span><input type="checkbox" role="switch" aria-label={t('CPU 温度')} checked={metrics.temperature} disabled={busy} onChange={event => void changeMetric('temperature', event.target.checked)} /></label>
   </section>
   <section className="settings-section" aria-label={t('运行偏好')}>
