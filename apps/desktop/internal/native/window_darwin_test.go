@@ -7,7 +7,7 @@ func TestHostMemoryPercent(t *testing.T) {
 	if !ok {
 		t.Fatal("host memory statistics unavailable")
 	}
-	if p < 1 || p > 100 {
+	if p < 0 || p > 100 {
 		t.Fatalf("implausible memory percent %.1f", p)
 	}
 	t.Logf("host memory %.1f%%", p)

@@ -123,7 +123,8 @@ func HostCPUTicks() (used, total uint64, ok bool) {
 	return uint64(usedTicks), uint64(totalTicks), true
 }
 
-// HostMemoryPercent is wired + active + compressed pages over physical RAM.
+// HostMemoryPercent is memory occupancy from the kernel free level used by
+// memory_pressure: 100 minus that free percentage.
 func HostMemoryPercent() (float64, bool) {
 	var percent C.double
 	if C.openSurgeHostMemory(&percent) == 0 {

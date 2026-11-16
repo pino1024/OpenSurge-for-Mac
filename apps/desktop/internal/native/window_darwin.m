@@ -549,8 +549,9 @@ int openSurgeHostCPU(unsigned long long *used, unsigned long long *total) {
     return 1;
 }
 
-int openSurgeHostMemory(double *percent) {
-    if (percent == NULL) return 0;
+extern int memorystatus_get_level(unsigned int *level);
+
+static int openSurgeHostMemoryFromPages(double *percent) {
     vm_statistics64_data_t info;
     mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
     if (host_statistics64(mach_host_self(), HOST_VM_INFO64, (host_info64_t)&info, &count) != KERN_SUCCESS) return 0;
@@ -562,6 +563,18 @@ int openSurgeHostMemory(double *percent) {
     if (used > total) used = total;
     *percent = 100.0 * (double)used / (double)total;
     return 1;
+}
+
+int openSurgeHostMemory(double *percent) {
+    if (percent == NULL) return 0;
+    // Same source as memory_pressure: kernel free percentage, including
+    // reclaimable cache. The menu bar shows occupancy, so invert it.
+    unsigned int freeLevel = 0;
+    if (memorystatus_get_level(&freeLevel) == 0 && freeLevel <= 100) {
+        *percent = 100.0 - (double)freeLevel;
+        return 1;
+    }
+    return openSurgeHostMemoryFromPages(percent);
 }
 
 typedef struct CF_BRIDGED_TYPE(id) __IOHIDEventSystemClient *OpenSurgeHIDClient;
