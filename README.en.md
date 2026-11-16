@@ -62,16 +62,12 @@ This repository is a personal optimized fork of [YTwsy/OpenSurge-for-Mac](https:
 
 Changes relative to upstream:
 
-- Menu bar shows **this Mac’s total download rate** (physical NIC traffic, proxy and direct alike; not downstream bypass-router traffic)
-- Fixed-width rate text without `/s`, so the label does not jump in length
-- Optional menu-bar **CPU occupancy**, **memory percent**, and **CPU core temperature**
-- Tray-panel switches to choose which meters are shown; Settings has the same controls
-- Login-item launch no longer pops a window; the menu bar stays quiet
-- Switching this Mac between Rule / Global / Direct closes current Mac-local connections so apps reconnect under the new mode; downstream devices are left alone
-- Active-device lists can assign a display alias to each connected IP without full device registration
-- The tray can drive the fan from a temperature curve: the axis shows this Mac’s minimum-to-maximum RPM, while the saved curve stays a percent; turning it off returns the fan to the system
-- The host chart shows a cluster temperature under each core bar, plus power, GPU, and CPU group temperatures on one row
-- The tray remembers the current chart and which sections are open; “View all” sits at the right of the active-device summary line
+- The menu bar can show this Mac’s total download rate, CPU use, memory use, and CPU temperature
+- Login launch stays in the menu bar and does not open a window
+- Switching this Mac between Rule, Global, and Direct closes its current connections so apps reconnect under the new mode
+- Active devices can have a display alias per connected IP
+- The tray can run the fan from a temperature curve, and turning it off returns the fan to the system
+- The host view shows each core’s use and temperature, plus power, GPU, and CPU temperatures
 
 <details>
   <summary><strong>OpenSurge in 10 images</strong></summary>
