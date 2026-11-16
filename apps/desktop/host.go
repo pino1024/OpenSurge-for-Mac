@@ -13,6 +13,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"open-mihomo-gateway/apps/desktop/internal/controlclient"
 	"open-mihomo-gateway/apps/desktop/internal/desktopactions"
+	"open-mihomo-gateway/apps/desktop/internal/fan"
 	"open-mihomo-gateway/apps/desktop/internal/loginitem"
 	"open-mihomo-gateway/apps/desktop/internal/menustatus"
 	"open-mihomo-gateway/apps/desktop/internal/native"
@@ -30,6 +31,7 @@ type desktopHost struct {
 	mu            sync.Mutex
 	language      string
 	menuBarShow   trayactivity.MenuBarShow
+	meters        hostMeterState
 	popup         *application.WebviewWindow
 	trayMore      *application.WebviewWindow
 	tray          *application.SystemTray
@@ -98,9 +100,18 @@ func (h *desktopHost) actions() *desktopactions.Actions {
 		ShowMain:              h.show,
 		MenuStatus:            h.menuSnapshot,
 		TrayActivity:          func() any { return h.activity.Snapshot() },
-		Reconnect:             h.reconnect,
-		Utilities:             h.utilities,
-		Uninstall:             h.uninstall,
+		HostMeters:            func() any { return h.hostMeters() },
+		FanControl:            func() any { return h.fanControl() },
+		SetFan: func(visible, enabled bool, points []desktopactions.FanPoint) (any, error) {
+			curve := make([]fan.Point, len(points))
+			for i, point := range points {
+				curve[i] = fan.Point{C: point.C, P: point.P}
+			}
+			return h.setFan(fan.Config{Visible: visible, Enabled: enabled, Points: curve})
+		},
+		Reconnect: h.reconnect,
+		Utilities: h.utilities,
+		Uninstall: h.uninstall,
 		SetLogin: func(enabled bool) (any, error) {
 			if !h.quitBusy.CompareAndSwap(false, true) {
 				return nil, servicelife.ErrQuitting

@@ -20,23 +20,28 @@ const fixture: DeviceTraffic = {
 beforeEach(async () => {
  await prepareLanguage('en'); activateLanguage('en')
  vi.useFakeTimers()
- vi.mocked(desktopAction).mockImplementation(async () => ({ traffic: { ...fixture, sampled_at: new Date().toISOString() }, failed: false, history: [
-  { time: Date.now() - 2000, ...fixture.gateway_rates }, { time: Date.now(), ...fixture.gateway_rates },
- ] }))
+ vi.mocked(desktopAction).mockImplementation(async action => {
+  if (action === 'host-meters') return { cpu: 18, cpu_ok: true, memory: 27, memory_ok: true, temperature: 56, temperature_ok: true, fan_rpm: 1200, fan_ok: true, fan_visible: true, fan_min: 1000, fan_max: 4900, cores: [10, 40, 80], core_temps: [41.2, 55.6, 60.4], power_temp: 54.2, gpu_temp: 43.4, perf_temp: 44.1 }
+  return { traffic: { ...fixture, sampled_at: new Date().toISOString() }, failed: false, history: [
+   { time: Date.now() - 2000, ...fixture.gateway_rates }, { time: Date.now(), ...fixture.gateway_rates },
+  ] }
+ })
  const routing = { schema_version: 1, mode: 'rule' as const, available_modes: ['rule', 'direct'] as Array<'rule' | 'direct'>, udp_behavior: 'rules' as const, transports: ['tun'] as Array<'tun'>, new_connections_only: true, consistent: true }
  vi.mocked(api.localRouting).mockResolvedValue(routing)
  vi.mocked(api.setLocalRouting).mockImplementation(async mode => ({ ...routing, mode }))
  vi.mocked(api.refreshLocalConnections).mockResolvedValue({ schema_version: 1, scope: 'gateway_local', matched_connections: 0, closed_connections: 0 })
  vi.mocked(api.setUIPreferences).mockResolvedValue({ schema_version: 1, language: 'en', device_aliases: {} })
 })
-afterEach(() => { cleanup(); vi.useRealTimers(); vi.resetAllMocks(); delete window.__opensurgeWindowVisible; activateLanguage('zh-Hans') })
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.resetAllMocks(); localStorage.clear(); delete window.__opensurgeWindowVisible; activateLanguage('zh-Hans') })
 
 it('shows live rates, counts active downstream devices, and expands details before navigating', async () => {
  const open = vi.fn()
  await act(async () => { render(<TrayActivity gateway="running" onOpen={open} />) })
+ await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Traffic' })) })
  expect(screen.getByText('12 MB/s')).toBeTruthy()
- expect(screen.getByText('2 active LAN devices · 10 total connections')).toBeTruthy()
  expect(screen.queryByText('Idle phone')).toBeNull()
+ fireEvent.click(screen.getByRole('button', { name: /Active devices/ }))
+ expect(screen.getByText('2 active LAN devices · 10 total connections')).toBeTruthy()
  const devices = screen.getAllByRole('button', { name: /^Device details: / })
  expect(devices[0].textContent).toContain('This Mac')
  fireEvent.click(screen.getByRole('button', { name: /View all/ }))
@@ -50,10 +55,44 @@ it('shows live rates, counts active downstream devices, and expands details befo
  open.mockClear()
  fireEvent.click(screen.getByRole('button', { name: 'Device details: Apple TV' }))
  expect(open).not.toHaveBeenCalled()
- expect(screen.queryByRole('button', { name: 'Configure in desktop window' })).toBeNull()
  fireEvent.click(screen.getByRole('button', { name: /connections for Apple TV/ }))
  expect(open).toHaveBeenCalledWith('connections', { owner: 'device:tv' })
  expect(document.body.textContent).not.toMatch(/[\u3400-\u9fff]/)
+})
+
+it('switches the chart between CPU status and network traffic', async () => {
+ const open = vi.fn()
+ await act(async () => { render(<TrayActivity gateway="running" onOpen={open} />) })
+ const traffic = screen.getByRole('button', { name: 'Traffic' }) as HTMLButtonElement
+ const cpu = screen.getByRole('button', { name: 'CPU' }) as HTMLButtonElement
+ expect(cpu.getAttribute('aria-pressed')).toBe('true')
+ expect(traffic.getAttribute('aria-pressed')).toBe('false')
+ expect(screen.getByText('18%')).toBeTruthy()
+ expect(screen.getByText('27%')).toBeTruthy()
+ expect(screen.getByRole('img', { name: 'Current usage of each core' })).toBeTruthy()
+ expect(document.querySelectorAll('.cpu-bar')).toHaveLength(3)
+ expect(screen.queryByText(/Current usage of each core ·/)).toBeNull()
+ expect(screen.getByText('41°')).toBeTruthy()
+ expect(screen.getByText('56°')).toBeTruthy()
+ expect(screen.getByText('60°')).toBeTruthy()
+ expect(document.querySelector('.cpu-groups')?.textContent).toBe('Power54°GPU43°CPU44°')
+ expect(screen.queryByText('12 MB/s')).toBeNull()
+ await act(async () => { fireEvent.click(traffic) })
+ expect(screen.getByText('12 MB/s')).toBeTruthy()
+ await act(async () => { fireEvent.click(cpu) })
+ expect(screen.getByText('18%')).toBeTruthy()
+ expect(open).not.toHaveBeenCalled()
+})
+
+it('hides the fan speed when fan control is off', async () => {
+ vi.mocked(desktopAction).mockImplementation(async action => {
+  if (action === 'host-meters') return { cpu: 18, cpu_ok: true, memory: 27, memory_ok: true, temperature: 56, temperature_ok: true, fan_rpm: 1200, fan_ok: true, fan_visible: false, cores: [10, 40, 80] }
+  return { traffic: { ...fixture, sampled_at: new Date().toISOString() }, failed: false, history: [] }
+ })
+ await act(async () => { render(<TrayActivity gateway="running" onOpen={vi.fn()} />) })
+ await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'CPU' })) })
+ expect(screen.queryByText(/Current usage of each core ·/)).toBeNull()
+ expect(screen.queryByText(/rpm/)).toBeNull()
 })
 
 it('switches this Mac between bypass and direct routing without opening the desktop window', async () => {
@@ -76,6 +115,7 @@ it('switches this Mac between bypass and direct routing without opening the desk
 
 it('pauses renderer reads but displays retained native history immediately on reopening', async () => {
  const view = render(<TrayActivity gateway="running" onOpen={vi.fn()} />)
+ await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Traffic' })) })
  await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
  expect(screen.getByText('12 MB/s')).toBeTruthy()
  window.__opensurgeWindowVisible = false
@@ -101,16 +141,26 @@ it('pauses renderer reads but displays retained native history immediately on re
 it('renders cached traffic without waiting for a stalled routing request', async () => {
  vi.mocked(api.localRouting).mockReturnValue(new Promise(() => {}))
  await act(async () => { render(<TrayActivity gateway="running" onOpen={vi.fn()} />) })
+ await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Traffic' })) })
  expect(screen.getByText('12 MB/s')).toBeTruthy()
  expect(screen.getByText('Loading…')).toBeTruthy()
  await act(async () => { await vi.advanceTimersByTimeAsync(4000) })
- expect(desktopAction).toHaveBeenCalledTimes(5)
+ expect(desktopAction).toHaveBeenCalledTimes(6)
  expect(api.localRouting).toHaveBeenCalledOnce()
 })
 
 it('does not turn the first baseline sample into a zero rate', async () => {
- vi.mocked(desktopAction).mockResolvedValueOnce({ traffic: fixture, history: [{ time: Date.now(), upload: 0, download: 0 }], failed: false })
+ let trafficReads = 0
+ vi.mocked(desktopAction).mockImplementation(async action => {
+  if (action === 'host-meters') return { cpu: 0, cpu_ok: false, memory: 0, memory_ok: false, temperature: 0, temperature_ok: false, fan_rpm: 0, fan_ok: false, fan_visible: false, cores: [] }
+  trafficReads++
+  if (trafficReads === 1) return { traffic: fixture, history: [{ time: Date.now(), upload: 0, download: 0 }], failed: false }
+  return { traffic: { ...fixture, sampled_at: new Date().toISOString() }, failed: false, history: [
+   { time: Date.now() - 2000, ...fixture.gateway_rates }, { time: Date.now(), ...fixture.gateway_rates },
+  ] }
+ })
  await act(async () => { render(<TrayActivity gateway="running" onOpen={vi.fn()} />) })
+ await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Traffic' })) })
  expect(screen.getByText('Sampling traffic…')).toBeTruthy()
  expect(document.querySelector('.tray-traffic-reveal')?.getAttribute('aria-hidden')).toBe('true')
  expect(screen.queryByText('12 MB/s')).toBeNull()
@@ -122,9 +172,12 @@ it('does not turn the first baseline sample into a zero rate', async () => {
 it('collapses stopped or unknown traffic without treating valid zero samples as missing', async () => {
  const open = vi.fn()
  const view = render(<TrayActivity gateway="stopped" onOpen={open} />)
+ expect(screen.getByText('Sampling CPU…')).toBeTruthy()
+ expect(document.querySelector('.tray-traffic')?.classList.contains('expanded')).toBe(true)
+ await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Traffic' })) })
  expect(screen.getByText('Start the gateway to see live traffic')).toBeTruthy()
  expect(document.querySelector('.tray-traffic')?.classList.contains('expanded')).toBe(false)
- expect(desktopAction).not.toHaveBeenCalled()
+ expect(vi.mocked(desktopAction).mock.calls.every(([action]) => action === 'host-meters')).toBe(true)
  fireEvent.click(screen.getByRole('button', { name: 'Open controls' }))
  expect(open).toHaveBeenCalledWith('network')
  view.rerender(<TrayActivity onOpen={open} />)
@@ -135,9 +188,34 @@ it('collapses stopped or unknown traffic without treating valid zero samples as 
   { time: Date.now() - 2000, upload: 0, download: 0 }, { time: Date.now(), upload: 0, download: 0 },
  ] })
  await act(async () => { view.rerender(<TrayActivity gateway="running" onOpen={open} />) })
+ await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Traffic' })) })
  expect(document.querySelector('.tray-traffic')?.classList.contains('expanded')).toBe(true)
  expect(screen.getAllByText('0 B/s').length).toBeGreaterThanOrEqual(2)
  view.rerender(<TrayActivity gateway="stopped" onOpen={open} />)
  expect(document.querySelector('.tray-traffic-reveal')?.getAttribute('aria-hidden')).toBe('true')
  expect(screen.getByText('Start the gateway to see live traffic')).toBeTruthy()
+})
+
+it('shows the fan curve axis in rpm', async () => {
+ await act(async () => { render(<TrayActivity gateway="running" onOpen={vi.fn()} />) })
+ await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Fan' })) })
+ expect(screen.getByText('1000')).toBeTruthy()
+ expect(screen.getByText('2950')).toBeTruthy()
+ expect(screen.getByText('4900')).toBeTruthy()
+ expect(screen.getByRole('slider', { name: 'Curve point 1' }).getAttribute('aria-valuetext')).toBe('60°C 1000 rpm')
+ expect(screen.getByRole('slider', { name: 'Curve point 2' }).getAttribute('aria-valuetext')).toBe('72°C 2014 rpm')
+ expect(screen.getByRole('slider', { name: 'Curve point 3' }).getAttribute('aria-valuetext')).toBe('85°C 4900 rpm')
+ expect(screen.queryByText('72°C · 2014 rpm')).toBeNull()
+ fireEvent.pointerDown(screen.getByRole('slider', { name: 'Curve point 2' }))
+ expect(screen.getByText('72°C · 2014 rpm')).toBeTruthy()
+})
+
+it('remembers the selected chart and the open device list', async () => {
+ const view = render(<TrayActivity gateway="running" onOpen={vi.fn()} />)
+ await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Fan' })) })
+ fireEvent.click(screen.getByRole('button', { name: /Active devices/ }))
+ view.unmount()
+ render(<TrayActivity gateway="running" onOpen={vi.fn()} />)
+ expect((screen.getByRole('button', { name: 'Fan' }) as HTMLButtonElement).getAttribute('aria-pressed')).toBe('true')
+ expect(screen.getByRole('button', { name: /Active devices/ }).getAttribute('aria-expanded')).toBe('true')
 })

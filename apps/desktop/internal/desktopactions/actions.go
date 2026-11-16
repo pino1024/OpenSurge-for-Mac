@@ -25,6 +25,9 @@ type Actions struct {
 	ShowSettings          func()
 	MenuStatus            func(context.Context, bool) any
 	TrayActivity          func() any
+	HostMeters            func() any
+	FanControl            func() any
+	SetFan                func(visible, enabled bool, points []FanPoint) (any, error)
 	ShowMain              func(string)
 	SetSleep              func(context.Context, bool) (any, error)
 	Reconnect             func(context.Context) error
@@ -36,6 +39,22 @@ type Actions struct {
 	Uninstall             func(context.Context) (bool, error)
 }
 
+type FanPoint struct {
+	C float64 `json:"c"`
+	P float64 `json:"p"`
+}
+
+func fanPoints(points [6]FanPoint) []FanPoint {
+	out := make([]FanPoint, 0, len(points))
+	for _, point := range points {
+		if point.C == 0 && point.P == 0 {
+			break
+		}
+		out = append(out, point)
+	}
+	return out
+}
+
 func (a *Actions) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
@@ -44,17 +63,20 @@ func (a *Actions) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type request struct {
-		URL      string `json:"url"`
-		Filename string `json:"filename"`
-		Text     string `json:"text"`
-		Language string `json:"language"`
-		Page     string `json:"page"`
-		Owner    string `json:"owner"`
-		Section  string `json:"section"`
-		Theme    string `json:"theme"`
-		Refresh  bool   `json:"refresh"`
-		Enabled  *bool  `json:"enabled"`
-		Full     bool   `json:"full"`
+		URL        string      `json:"url"`
+		Filename   string      `json:"filename"`
+		Text       string      `json:"text"`
+		Language   string      `json:"language"`
+		Page       string      `json:"page"`
+		Owner      string      `json:"owner"`
+		Section    string      `json:"section"`
+		Theme      string      `json:"theme"`
+		Refresh    bool        `json:"refresh"`
+		Enabled    *bool       `json:"enabled"`
+		Full       bool        `json:"full"`
+		FanVisible *bool       `json:"fan_visible"`
+		FanEnabled *bool       `json:"fan_enabled"`
+		FanPoints  [6]FanPoint `json:"fan_points"`
 	}
 	var payload request
 	limit := int64(256 << 10)
@@ -123,6 +145,41 @@ func (a *Actions) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		result = a.MenuStatus(r.Context(), payload.Refresh)
 	case "/desktop/v1/tray-activity":
 		result = a.TrayActivity()
+	case "/desktop/v1/fan-control":
+		points := fanPoints(payload.FanPoints)
+		writing := payload.FanVisible != nil || payload.FanEnabled != nil || len(points) > 0
+		if writing {
+			onlyFan := request{FanVisible: payload.FanVisible, FanEnabled: payload.FanEnabled, FanPoints: payload.FanPoints}
+			if payload.FanVisible == nil || payload.FanEnabled == nil || len(points) < 2 || payload != onlyFan {
+				http.Error(w, "fan control needs visibility, enabled, and a curve", http.StatusBadRequest)
+				return
+			}
+			if a.SetFan == nil {
+				http.Error(w, "fan control is unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			result, err = a.SetFan(*payload.FanVisible, *payload.FanEnabled, points)
+			break
+		}
+		if payload != (request{}) {
+			http.Error(w, "fan control read takes no arguments", http.StatusBadRequest)
+			return
+		}
+		if a.FanControl == nil {
+			result = map[string]any{"visible": true, "enabled": true, "points": []FanPoint{{C: 60, P: 0}, {C: 72, P: 26}, {C: 85, P: 100}}}
+			break
+		}
+		result = a.FanControl()
+	case "/desktop/v1/host-meters":
+		if payload != (request{}) {
+			http.Error(w, "host meter action takes no arguments", http.StatusBadRequest)
+			return
+		}
+		if a.HostMeters == nil {
+			result = map[string]any{"history": []float64{}}
+			break
+		}
+		result = a.HostMeters()
 	case "/desktop/v1/tray-appearance", "/desktop/v1/settings-appearance":
 		if payload.Theme != "light" && payload.Theme != "dark" && payload.Theme != "system" {
 			http.Error(w, "unsupported appearance", http.StatusBadRequest)

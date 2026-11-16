@@ -8,6 +8,47 @@ import (
 	"testing"
 )
 
+func TestHostMetersActionIsArgumentFree(t *testing.T) {
+	calls := 0
+	a := &Actions{HostMeters: func() any { calls++; return map[string]any{"cpu": 12.0, "history": []float64{12}} }}
+	w := httptest.NewRecorder()
+	a.ServeHTTP(w, httptest.NewRequest("POST", "/desktop/v1/host-meters", strings.NewReader(`{}`)))
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"cpu":12`) || calls != 1 {
+		t.Fatalf("host meters: %d %s", w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	a.ServeHTTP(w, httptest.NewRequest("POST", "/desktop/v1/host-meters", strings.NewReader(`{"page":"network"}`)))
+	if w.Code != 400 {
+		t.Fatalf("host meters rejected extra arguments with %d", w.Code)
+	}
+}
+
+func TestFanControlReadsAndWrites(t *testing.T) {
+	a := &Actions{FanControl: func() any {
+		return map[string]any{"enabled": true, "points": []FanPoint{{C: 60, P: 0}, {C: 72, P: 26}, {C: 85, P: 100}}}
+	}}
+	w := httptest.NewRecorder()
+	a.ServeHTTP(w, httptest.NewRequest("POST", "/desktop/v1/fan-control", strings.NewReader(`{}`)))
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"enabled":true`) {
+		t.Fatalf("fan read: %d %s", w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	a.ServeHTTP(w, httptest.NewRequest("POST", "/desktop/v1/fan-control", strings.NewReader(`{"fan_enabled":false}`)))
+	if w.Code != 400 {
+		t.Fatalf("partial fan write: %d", w.Code)
+	}
+	var saved bool
+	a.SetFan = func(visible, enabled bool, points []FanPoint) (any, error) {
+		saved = visible && !enabled && len(points) == 2 && points[0] == (FanPoint{C: 55, P: 0}) && points[1] == (FanPoint{C: 80, P: 100})
+		return map[string]any{"visible": visible, "enabled": enabled, "points": points}, nil
+	}
+	w = httptest.NewRecorder()
+	a.ServeHTTP(w, httptest.NewRequest("POST", "/desktop/v1/fan-control", strings.NewReader(`{"fan_visible":true,"fan_enabled":false,"fan_points":[{"c":55,"p":0},{"c":80,"p":100}]}`)))
+	if w.Code != 200 || !saved || !strings.Contains(w.Body.String(), `"c":55`) {
+		t.Fatalf("fan write: %d saved=%v %s", w.Code, saved, w.Body.String())
+	}
+}
+
 func TestBrowserActionIsArgumentFreeAndDoesNotExposeGrant(t *testing.T) {
 	calls := 0
 	a := &Actions{OpenBrowser: func(context.Context) error { calls++; return nil }}

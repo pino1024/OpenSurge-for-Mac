@@ -1,4 +1,5 @@
 import { LANAccessCard } from '../components/LANAccessCard'
+import { FanControl } from '../tray/FanControl'
 import { releaseDisplayVersion } from '../release'
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
@@ -99,9 +100,12 @@ export function SettingsApp() {
   <section className="settings-section" aria-label={t('运行偏好')}>
    <label className="settings-row"><span>{t('登录时启动')}<small>{t('登录 Mac 后在后台启动，不打开窗口。')}</small></span><input type="checkbox" role="switch" aria-label={t('登录时启动')} checked={login?.state === 'enabled' || login?.state === 'approval'} disabled={!login || busy || login.state === 'unavailable'} onChange={event => void changeLogin(event.target.checked)} /></label>
    <LoginItemFeedback login={login} hintClass="settings-hint" errorClass="settings-error" openSettings={() => openLink('login-settings')} />
-   <label className="settings-row"><span>{t('合盖保持运行')}<small>{t('默认关闭 · 本次运行有效')}</small></span><input type="checkbox" role="switch" aria-label={t('合盖保持运行')} checked={sleep?.active ?? false} disabled={!sleep || busy} onChange={event => void changeSleep(event.target.checked)} /></label>
-   {sleep?.active && <p className="settings-hint">{t('合盖后仍会运行，请注意耗电与散热，不要放入不通风的包内。')}</p>}
-   {sleep?.error && <p role="alert" className="settings-error">{sleep.error}</p>}
+   <FanControl variant="settings" />
+   {snapshot?.notebook === true && <>
+    <label className="settings-row"><span>{t('合盖保持运行')}<small>{t('默认关闭 · 本次运行有效')}</small></span><input type="checkbox" role="switch" aria-label={t('合盖保持运行')} checked={sleep?.active ?? false} disabled={!sleep || busy} onChange={event => void changeSleep(event.target.checked)} /></label>
+    {sleep?.active && <p className="settings-hint">{t('合盖后仍会运行，请注意耗电与散热，不要放入不通风的包内。')}</p>}
+    {sleep?.error && <p role="alert" className="settings-error">{sleep.error}</p>}
+   </>}
   </section>
   <LANAccessCard />
   <section className="settings-section" aria-label={t('软件更新')}>

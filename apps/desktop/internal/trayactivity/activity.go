@@ -103,6 +103,18 @@ func FormatMemoryPercent(percent float64) string {
 	return FormatCPUPercent(percent)
 }
 
+// FormatFanRPM is a fixed 4-character fan speed (`1000`, `4900`).
+func FormatFanRPM(rpm float64, ok bool) string {
+	if !ok || math.IsNaN(rpm) || rpm < 0 {
+		return "\u2007\u2007\u2007-"
+	}
+	n := int(math.Round(rpm))
+	if n > 9999 {
+		n = 9999
+	}
+	return strings.ReplaceAll(fmt.Sprintf("%4d", n), " ", "\u2007")
+}
+
 // FormatCPUTemp is a fixed 4-character CPU-core temperature (` 42C`, `100C`).
 func FormatCPUTemp(celsius float64, ok bool) string {
 	if !ok || math.IsNaN(celsius) {
@@ -124,14 +136,15 @@ type MenuBarShow struct {
 	CPU         bool
 	Memory      bool
 	Temperature bool
+	Fan         bool
 }
 
 func DefaultMenuBarShow() MenuBarShow {
-	return MenuBarShow{Download: true, CPU: true, Memory: true, Temperature: true}
+	return MenuBarShow{Download: true, CPU: true, Memory: true, Temperature: true, Fan: true}
 }
 
-// FormatMenuBarStats is the combined menubar label: rate, CPU, memory, core temp.
-func FormatMenuBarStats(bytesPerSecond int64, cpuPercent, memPercent, tempC float64, tempOK bool, show MenuBarShow) string {
+// FormatMenuBarStats is the combined menubar label: rate, CPU, memory, core temp, fan RPM.
+func FormatMenuBarStats(bytesPerSecond int64, cpuPercent, memPercent, tempC float64, tempOK bool, fanRPM float64, fanOK bool, show MenuBarShow) string {
 	var parts []string
 	if show.Download {
 		parts = append(parts, FormatDownloadRate(bytesPerSecond))
@@ -144,6 +157,9 @@ func FormatMenuBarStats(bytesPerSecond int64, cpuPercent, memPercent, tempC floa
 	}
 	if show.Temperature {
 		parts = append(parts, FormatCPUTemp(tempC, tempOK))
+	}
+	if show.Fan {
+		parts = append(parts, FormatFanRPM(fanRPM, fanOK))
 	}
 	return strings.Join(parts, "\u2007")
 }

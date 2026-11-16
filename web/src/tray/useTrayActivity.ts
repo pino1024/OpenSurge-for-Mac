@@ -5,6 +5,25 @@ import { desktopAction } from '../desktop'
 import type { DeviceTraffic, LocalRouting, LocalRoutingMode } from '../types'
 import { watchVisibleRefresh } from '../visibility'
 
+export type HostMeters = { cpu: number; cpu_ok: boolean; memory: number; memory_ok: boolean; temperature: number; temperature_ok: boolean; fan_rpm: number; fan_ok: boolean; fan_visible: boolean; fan_min: number; fan_max: number; control_temp: number; control_percent: number; control_ok: boolean; control_active: boolean; cores: number[]; core_temps: number[]; power_temp: number; gpu_temp: number; perf_temp: number }
+const emptyMeters: HostMeters = { cpu: 0, cpu_ok: false, memory: 0, memory_ok: false, temperature: 0, temperature_ok: false, fan_rpm: 0, fan_ok: false, fan_visible: false, fan_min: 0, fan_max: 0, control_temp: 0, control_percent: 0, control_ok: false, control_active: false, cores: [], core_temps: [], power_temp: 0, gpu_temp: 0, perf_temp: 0 }
+
+export function useHostMeters(enabled: boolean): HostMeters {
+  const [meters, setMeters] = useState(emptyMeters)
+  useEffect(() => {
+    if (!enabled) return
+    let active = true
+    const stop = watchVisibleRefresh(async () => {
+      try {
+        const next = await desktopAction<HostMeters>('host-meters')
+        if (active && Array.isArray(next?.cores)) setMeters({ ...emptyMeters, ...next, cores: next.cores, core_temps: Array.isArray(next.core_temps) ? next.core_temps : [] })
+      } catch { /* keep the last sample */ }
+    }, 1_000)
+    return () => { active = false; stop() }
+  }, [enabled])
+  return meters
+}
+
 export type TrayTrafficPoint = { time: number; upload: number; download: number }
 export type TrayTrafficSnapshot = { traffic: DeviceTraffic | null; history: TrayTrafficPoint[] | null; failed: boolean }
 type Activity = { traffic: DeviceTraffic | null; routing: LocalRouting | null; history: TrayTrafficPoint[]; deviceKeys: string[]; trafficFailed: boolean; routingFailed: boolean }

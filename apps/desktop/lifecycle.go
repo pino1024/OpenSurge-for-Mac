@@ -16,6 +16,7 @@ type desktopSnapshot struct {
 	menustatus.Snapshot
 	ServiceActions bool `json:"service_actions"`
 	CanUninstall   bool `json:"can_uninstall"`
+	Notebook       bool `json:"notebook"`
 }
 
 func (h *desktopHost) menuSnapshot(ctx context.Context, refresh bool) any {
@@ -24,7 +25,7 @@ func (h *desktopHost) menuSnapshot(ctx context.Context, refresh bool) any {
 		snapshot = h.status.Refresh(ctx)
 	}
 	snapshot.CanQuit = servicelife.CanStop(snapshot.Status) && !h.quitBusy.Load()
-	return desktopSnapshot{Snapshot: snapshot, ServiceActions: h.services.Available(), CanUninstall: uninstall.CanUninstall(snapshot.Status) && !h.quitBusy.Load()}
+	return desktopSnapshot{Snapshot: snapshot, ServiceActions: h.services.Available(), CanUninstall: uninstall.CanUninstall(snapshot.Status) && !h.quitBusy.Load(), Notebook: native.Notebook()}
 }
 func (h *desktopHost) text(zh, en string) string {
 	h.mu.Lock()

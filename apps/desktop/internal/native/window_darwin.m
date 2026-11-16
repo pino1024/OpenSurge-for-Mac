@@ -1,9 +1,12 @@
 #import <Cocoa/Cocoa.h>
+#import <CoreFoundation/CoreFoundation.h>
 #import <WebKit/WebKit.h>
 #import <objc/runtime.h>
+#include <IOKit/IOKitLib.h>
 #include <ifaddrs.h>
 #include <mach/mach.h>
 #include <mach/mach_host.h>
+#include <mach/processor_info.h>
 #include <math.h>
 #include <net/if.h>
 #include <net/if_dl.h>
@@ -14,6 +17,21 @@
 #include <unistd.h>
 
 static const char guardKey;
+
+// Intel notebooks identify themselves in hw.model. Apple silicon uses MacNN,N
+// for every product, and only machines with a lid publish the clamshell key.
+bool openSurgeNotebook(void) {
+    char model[128] = {0};
+    size_t len = sizeof model;
+    if (sysctlbyname("hw.model", model, &len, NULL, 0) == 0 && strncmp(model, "MacBook", 7) == 0) return true;
+    io_registry_entry_t root = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPMrootDomain"));
+    if (!root) return false;
+    CFTypeRef lid = IORegistryEntryCreateCFProperty(root, CFSTR("AppleClamshellState"), kCFAllocatorDefault, 0);
+    IOObjectRelease(root);
+    if (!lid) return false;
+    CFRelease(lid);
+    return true;
+}
 static BOOL presentingMainWindow;
 static BOOL smokeActions(void) { return [NSProcessInfo.processInfo.arguments containsObject:@"--smoke-actions"]; }
 
@@ -535,6 +553,27 @@ uint64_t openSurgeLinkIbytes(void) {
     return total;
 }
 
+int openSurgeCoreCPU(unsigned long long *used, unsigned long long *total, int capacity) {
+    if (used == NULL || total == NULL || capacity <= 0) return 0;
+    natural_t processors = 0;
+    processor_info_array_t raw = NULL;
+    mach_msg_type_number_t rawCount = 0;
+    if (host_processor_info(mach_host_self(), PROCESSOR_CPU_LOAD_INFO, &processors, &raw, &rawCount) != KERN_SUCCESS || processors == 0 || raw == NULL) return 0;
+    processor_cpu_load_info_t load = (processor_cpu_load_info_t)raw;
+    int n = (int)processors;
+    if (n > capacity) n = capacity;
+    for (int i = 0; i < n; i++) {
+        unsigned long long busy = (unsigned long long)load[i].cpu_ticks[CPU_STATE_USER]
+            + (unsigned long long)load[i].cpu_ticks[CPU_STATE_SYSTEM]
+            + (unsigned long long)load[i].cpu_ticks[CPU_STATE_NICE];
+        unsigned long long idle = (unsigned long long)load[i].cpu_ticks[CPU_STATE_IDLE];
+        used[i] = busy;
+        total[i] = busy + idle;
+    }
+    vm_deallocate(mach_task_self(), (vm_address_t)raw, (vm_size_t)rawCount * sizeof(integer_t));
+    return n;
+}
+
 int openSurgeHostCPU(unsigned long long *used, unsigned long long *total) {
     if (used == NULL || total == NULL) return 0;
     host_cpu_load_info_data_t info;
@@ -633,5 +672,256 @@ int openSurgeCPUTempC(double *celsius) {
     CFRelease(services);
     if (hottest < 0) return 0;
     *celsius = hottest;
+    return 1;
+}
+
+// Fan sample uses the same SMC keys as the opensurge-fan curve: the hottest
+// voltage-regulator, GPU, or performance-core sensor, plus the live fan RPM.
+// Reading does not need root.
+
+typedef struct { char major, minor, build, reserved[1]; UInt16 release; } OpenSurgeSMCVers;
+typedef struct { UInt16 version, length; UInt32 cpu, gpu, mem; } OpenSurgeSMCLimit;
+typedef struct { UInt32 dataSize, dataType; char dataAttributes; } OpenSurgeSMCKeyInfo;
+typedef struct {
+    UInt32 key;
+    OpenSurgeSMCVers vers;
+    OpenSurgeSMCLimit plimit;
+    OpenSurgeSMCKeyInfo ki;
+    char result, status, data8;
+    UInt32 data32;
+    unsigned char bytes[32];
+} OpenSurgeSMCData;
+
+enum { kOpenSurgeSMCRead = 5, kOpenSurgeSMCKeyAtIndex = 8, kOpenSurgeSMCKeyInfo = 9 };
+
+static io_connect_t openSurgeSMC;
+static char openSurgeSensorKeys[400][5];
+static int openSurgeSensorCount;
+static char openSurgeTeKeys[96][5];
+static char openSurgeTpKeys[96][5];
+static char openSurgeTgKeys[96][5];
+static char openSurgeTvdKeys[96][5];
+static int openSurgeTeCount, openSurgeTpCount, openSurgeTgCount, openSurgeTvdCount;
+static char openSurgeCoreCluster[64];
+static int openSurgeCoreClusterCount;
+static int openSurgeCoreClustersReady;
+static int openSurgeSensorReady;
+
+static UInt32 openSurgeSMCKey(const char *s) {
+    return ((UInt32)(unsigned char)s[0] << 24) | ((UInt32)(unsigned char)s[1] << 16) | ((UInt32)(unsigned char)s[2] << 8) | (UInt32)(unsigned char)s[3];
+}
+
+static void openSurgeSMCKeyString(UInt32 key, char *out) {
+    out[0] = (char)(key >> 24);
+    out[1] = (char)(key >> 16);
+    out[2] = (char)(key >> 8);
+    out[3] = (char)key;
+    out[4] = 0;
+}
+
+static int openSurgeSMCCall(OpenSurgeSMCData *in, OpenSurgeSMCData *out) {
+    size_t outSize = sizeof(*out);
+    return IOConnectCallStructMethod(openSurgeSMC, 2, in, sizeof(*in), out, &outSize);
+}
+
+static int openSurgeSMCRead(const char *key, unsigned char *bytes, char type[5]) {
+    OpenSurgeSMCData in = {0}, out = {0};
+    in.key = openSurgeSMCKey(key);
+    in.data8 = kOpenSurgeSMCKeyInfo;
+    if (openSurgeSMCCall(&in, &out) || out.result) return 0;
+    if (type) openSurgeSMCKeyString(out.ki.dataType, type);
+    UInt32 size = out.ki.dataSize;
+    if (size > 32) size = 32;
+    memset(&in, 0, sizeof(in));
+    in.key = openSurgeSMCKey(key);
+    in.ki.dataSize = size;
+    in.data8 = kOpenSurgeSMCRead;
+    memset(&out, 0, sizeof(out));
+    if (openSurgeSMCCall(&in, &out) || out.result) return 0;
+    memcpy(bytes, out.bytes, 32);
+    return 1;
+}
+
+static double openSurgeSMCNumber(const char *key) {
+    unsigned char bytes[32];
+    char type[5] = {0};
+    if (!openSurgeSMCRead(key, bytes, type)) return -1;
+    if (strcmp(type, "flt ") == 0) {
+        float value;
+        memcpy(&value, bytes, 4);
+        return value;
+    }
+    if (strcmp(type, "ui8 ") == 0) return bytes[0];
+    if (strcmp(type, "ui16") == 0) return (bytes[0] << 8) | bytes[1];
+    return -1;
+}
+
+static int openSurgeDecidingSensor(const char *key) {
+    return strncmp(key, "TVD", 3) == 0 || strncmp(key, "Tg", 2) == 0 || strncmp(key, "Tp", 2) == 0;
+}
+
+static int openSurgeSMCOpen(void) {
+    if (openSurgeSMC) return 1;
+    io_service_t service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSMC"));
+    if (!service) return 0;
+    kern_return_t result = IOServiceOpen(service, mach_task_self(), 0, &openSurgeSMC);
+    IOObjectRelease(service);
+    if (result != KERN_SUCCESS || !openSurgeSMC) {
+        openSurgeSMC = 0;
+        return 0;
+    }
+    if (openSurgeSensorReady) return 1;
+    unsigned char bytes[32];
+    if (!openSurgeSMCRead("#KEY", bytes, NULL)) return 1;
+    UInt32 count = ((UInt32)bytes[0] << 24) | ((UInt32)bytes[1] << 16) | ((UInt32)bytes[2] << 8) | bytes[3];
+    for (UInt32 i = 0; i < count; i++) {
+        OpenSurgeSMCData in = {0}, out = {0};
+        in.data8 = kOpenSurgeSMCKeyAtIndex;
+        in.data32 = i;
+        if (openSurgeSMCCall(&in, &out)) continue;
+        char key[5];
+        openSurgeSMCKeyString(out.key, key);
+        if (strncmp(key, "Te", 2) == 0 && openSurgeTeCount < 96) memcpy(openSurgeTeKeys[openSurgeTeCount++], key, 5);
+        else if (strncmp(key, "Tp", 2) == 0 && openSurgeTpCount < 96) memcpy(openSurgeTpKeys[openSurgeTpCount++], key, 5);
+        else if (strncmp(key, "Tg", 2) == 0 && openSurgeTgCount < 96) memcpy(openSurgeTgKeys[openSurgeTgCount++], key, 5);
+        else if (strncmp(key, "TVD", 3) == 0 && openSurgeTvdCount < 96) memcpy(openSurgeTvdKeys[openSurgeTvdCount++], key, 5);
+        if (!openSurgeDecidingSensor(key) || openSurgeSensorCount >= 400) continue;
+        double value = openSurgeSMCNumber(key);
+        if (value < 5 || value > 130) continue;
+        memcpy(openSurgeSensorKeys[openSurgeSensorCount], key, 5);
+        openSurgeSensorCount++;
+    }
+    openSurgeSensorReady = 1;
+    return 1;
+}
+
+static void openSurgeLoadCoreClusters(void) {
+    if (openSurgeCoreClustersReady) return;
+    openSurgeCoreClustersReady = 1;
+    io_iterator_t iter = IO_OBJECT_NULL;
+    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOPlatformDevice"), &iter) != KERN_SUCCESS) return;
+    io_service_t service;
+    while ((service = IOIteratorNext(iter))) {
+        CFTypeRef idRef = IORegistryEntryCreateCFProperty(service, CFSTR("logical-cpu-id"), kCFAllocatorDefault, 0);
+        CFTypeRef typeRef = IORegistryEntryCreateCFProperty(service, CFSTR("cluster-type"), kCFAllocatorDefault, 0);
+        int cpu = -1;
+        if (idRef && CFGetTypeID(idRef) == CFNumberGetTypeID()) CFNumberGetValue((CFNumberRef)idRef, kCFNumberIntType, &cpu);
+        char kind = 0;
+        if (typeRef && CFGetTypeID(typeRef) == CFDataGetTypeID()) {
+            const UInt8 *bytes = CFDataGetBytePtr((CFDataRef)typeRef);
+            if (bytes && CFDataGetLength((CFDataRef)typeRef) > 0) kind = (char)bytes[0];
+        } else if (typeRef && CFGetTypeID(typeRef) == CFStringGetTypeID()) {
+            char tmp[4] = {0};
+            CFStringGetCString((CFStringRef)typeRef, tmp, sizeof tmp, kCFStringEncodingUTF8);
+            kind = tmp[0];
+        }
+        if (cpu >= 0 && cpu < 64 && (kind == 'E' || kind == 'P' || kind == 'M' || kind == 'S')) {
+            openSurgeCoreCluster[cpu] = kind;
+            if (cpu + 1 > openSurgeCoreClusterCount) openSurgeCoreClusterCount = cpu + 1;
+        }
+        if (idRef) CFRelease(idRef);
+        if (typeRef) CFRelease(typeRef);
+        IOObjectRelease(service);
+    }
+    IOObjectRelease(iter);
+}
+
+static double openSurgeGroupTemp(char keys[][5], int count) {
+    double sum = 0;
+    int used = 0;
+    for (int i = 0; i < count; i++) {
+        double value = openSurgeSMCNumber(keys[i]);
+        if (value < 5 || value > 130) continue;
+        sum += value;
+        used++;
+    }
+    return used ? sum / used : -1;
+}
+
+int openSurgeCoreTemps(double *out, int capacity) {
+    if (out == NULL || capacity <= 0 || !openSurgeSMCOpen()) return 0;
+    unsigned long long used[64], total[64];
+    int n = openSurgeCoreCPU(used, total, 64);
+    if (n <= 0) return 0;
+    if (n > capacity) n = capacity;
+    openSurgeLoadCoreClusters();
+    double efficiency = openSurgeGroupTemp(openSurgeTeKeys, openSurgeTeCount);
+    double performance = openSurgeGroupTemp(openSurgeTpKeys, openSurgeTpCount);
+    for (int i = 0; i < n; i++) {
+        char kind = i < 64 ? openSurgeCoreCluster[i] : 0;
+        double value = kind == 'E' ? (efficiency >= 0 ? efficiency : performance) : (performance >= 0 ? performance : efficiency);
+        out[i] = value;
+    }
+    return n;
+}
+
+static double openSurgeGroupFinal(char keys[][5], int count) {
+    double values[96];
+    int n = 0;
+    for (int i = 0; i < count && n < 96; i++) {
+        double value = openSurgeSMCNumber(keys[i]);
+        if (value < 5 || value >= 130) continue;
+        values[n++] = value;
+    }
+    if (n <= 0) return -1;
+    if (n >= 3) {
+        int hot = 0;
+        for (int i = 1; i < n; i++) if (values[i] > values[hot]) hot = i;
+        double sum = 0;
+        for (int i = 0; i < n; i++) if (i != hot) sum += values[i];
+        return sum / (n - 1);
+    }
+    double sum = 0;
+    for (int i = 0; i < n; i++) sum += values[i];
+    return sum / n;
+}
+
+int openSurgeGroupTemps(double *power, double *gpu, double *performance) {
+    if (power == NULL || gpu == NULL || performance == NULL || !openSurgeSMCOpen()) return 0;
+    *power = openSurgeGroupFinal(openSurgeTvdKeys, openSurgeTvdCount);
+    *gpu = openSurgeGroupFinal(openSurgeTgKeys, openSurgeTgCount);
+    *performance = openSurgeGroupFinal(openSurgeTpKeys, openSurgeTpCount);
+    return (*power >= 0 || *gpu >= 0 || *performance >= 0) ? 1 : 0;
+}
+
+static const char *openSurgeFanKey(int fan, const char *suffix) {
+    static char keys[4][5];
+    snprintf(keys[fan & 3], 5, "F%d%s", fan, suffix);
+    return keys[fan & 3];
+}
+
+int openSurgeFanSample(double *celsius, int *tempOK, double *rpm, double *minRPM, double *maxRPM) {
+    if (celsius == NULL || tempOK == NULL || rpm == NULL || minRPM == NULL || maxRPM == NULL) return 0;
+    *tempOK = 0;
+    *celsius = 0;
+    *rpm = 0;
+    *minRPM = 0;
+    *maxRPM = 0;
+    if (!openSurgeSMCOpen()) return 0;
+    int fans = (int)openSurgeSMCNumber("FNum");
+    if (fans < 1) fans = 1;
+    if (fans > 4) fans = 4;
+    double fastest = -1;
+    for (int i = 0; i < fans; i++) {
+        double actual = openSurgeSMCNumber(openSurgeFanKey(i, "Ac"));
+        if (actual > fastest) fastest = actual;
+    }
+    if (fastest < 0) return 0;
+    *rpm = fastest;
+    double low = openSurgeSMCNumber(openSurgeFanKey(0, "Mn"));
+    double high = openSurgeSMCNumber(openSurgeFanKey(0, "Mx"));
+    if (high > low && low >= 0) {
+        *minRPM = low;
+        *maxRPM = high;
+    }
+    double hottest = -1;
+    for (int i = 0; i < openSurgeSensorCount; i++) {
+        double value = openSurgeSMCNumber(openSurgeSensorKeys[i]);
+        if (value > hottest && value < 130) hottest = value;
+    }
+    if (hottest >= 0) {
+        *celsius = hottest;
+        *tempOK = 1;
+    }
     return 1;
 }

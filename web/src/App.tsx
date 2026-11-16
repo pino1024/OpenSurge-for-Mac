@@ -79,6 +79,7 @@ export function App() {
   const [authenticationRequired, setAuthenticationRequired] = useState(false)
   const [theme, setTheme] = useTheme()
   const [quickSettingsOpen, setQuickSettingsOpen] = useState(false)
+  const [notebook, setNotebook] = useState<boolean | null>(null)
   const { language, languageChanging, changeLanguage, beginLanguageRefresh } = useInterfaceLanguage(setError)
   const [devicesDirty, setDevicesDirty] = useState(false)
   const [sourcesDirty, setSourcesDirty] = useState(false)
@@ -100,6 +101,14 @@ export function App() {
   sourcesDirtyRef.current = sourcesDirty
 
   useEffect(() => watchDesktopLinks(setError), [])
+  useEffect(() => {
+    if (!isDesktop()) return
+    let active = true
+    desktopAction<{ notebook?: boolean }>('menubar-status').then(next => {
+      if (active && typeof next.notebook === 'boolean') setNotebook(next.notebook)
+    }).catch(() => {})
+    return () => { active = false }
+  }, [])
 
   const refresh = useCallback(async () => {
     const request = ++overviewRequest.current
@@ -305,11 +314,11 @@ export function App() {
   return <AppShell page={page} nav={nav} status={displayState} statusLabel={displayLabel} onNavigate={go} footer={<div className="sidebar-footer">
       <button type="button" className="sidebar-status" aria-label={t('快捷设置：{{status}}', { status: displayLabel })} aria-expanded={quickSettingsOpen} aria-controls="sidebar-quick-settings" onClick={() => setQuickSettingsOpen(open => !open)}><StatusDot status={displayState} /><span className="sidebar-status-copy"><strong>{displayLabel}</strong>{displayDetail && <small className="sidebar-status-detail">{displayDetail}</small>}<small>{import.meta.env.VITE_OPENSURGE_RELEASE_TAG} {releaseCodename(import.meta.env.VITE_OPENSURGE_RELEASE_TAG)}</small></span><svg className="sidebar-status-gear" viewBox="0 0 24 24" aria-hidden="true"><path fillRule="evenodd" d="M10 3h4l.5 2.3 1.3.8 2.2-.7 2 3.4-1.7 1.6v3.2l1.7 1.6-2 3.4-2.2-.7-1.3.8L14 21h-4l-.5-2.3-1.3-.8-2.2.7-2-3.4 1.7-1.6v-3.2L4 8.8l2-3.4 2.2.7 1.3-.8L10 3Zm5 9a3 3 0 1 0-6 0 3 3 0 0 0 6 0Z" /></svg></button>
       <div className={`sidebar-settings-reveal ${quickSettingsOpen ? 'expanded' : ''}`} id="sidebar-quick-settings" aria-hidden={!quickSettingsOpen} inert={!quickSettingsOpen}><div className="sidebar-settings-inner"><div className="sidebar-controls">
-        <label className="sidebar-control-row sidebar-switch" title={t('阻止空闲睡眠和合盖睡眠。合盖运行可能明显增加耗电与发热，请勿放入不通风的包内。')}>
+        {(!isDesktop() || notebook === true) && <label className="sidebar-control-row sidebar-switch" title={t('阻止空闲睡眠和合盖睡眠。合盖运行可能明显增加耗电与发热，请勿放入不通风的包内。')}>
           <span className="sidebar-control-copy"><strong>{t(sleepPreventionChanging ? '正在切换…' : '合盖保持运行')}</strong><small>{t(overview?.sleep_prevention?.active ? '系统睡眠已临时禁用' : '默认关闭 · 本次运行有效')}</small></span>
           <input type="checkbox" checked={overview?.sleep_prevention?.active ?? false} disabled={!overview || sleepPreventionChanging} onChange={event => void setSleepPrevention(event.target.checked)} />
-        </label>
-        {overview?.sleep_prevention?.error && <small className="sidebar-control-error" role="status">{overview.sleep_prevention.error}</small>}
+        </label>}
+        {(!isDesktop() || notebook === true) && overview?.sleep_prevention?.error && <small className="sidebar-control-error" role="status">{overview.sleep_prevention.error}</small>}
         <LanguageSelector language={language} changing={languageChanging} onChange={next => { void changeLanguage(next).then(changed => { if (changed) void refresh() }) }} />
         <label className="sidebar-control-row sidebar-switch">
           <span className="sidebar-control-copy"><strong>{t('深色模式')}</strong></span>

@@ -69,6 +69,9 @@ Changes relative to upstream:
 - Login-item launch no longer pops a window; the menu bar stays quiet
 - Switching this Mac between Rule / Global / Direct closes current Mac-local connections so apps reconnect under the new mode; downstream devices are left alone
 - Active-device lists can assign a display alias to each connected IP without full device registration
+- The tray can drive the fan from a temperature curve: the axis shows this Mac’s minimum-to-maximum RPM, while the saved curve stays a percent; turning it off returns the fan to the system
+- The host chart shows a cluster temperature under each core bar, plus power, GPU, and CPU group temperatures on one row
+- The tray remembers the current chart and which sections are open; “View all” sits at the right of the active-device summary line
 
 <details>
   <summary><strong>OpenSurge in 10 images</strong></summary>

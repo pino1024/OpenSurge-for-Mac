@@ -33,4 +33,5 @@ export type TraySnapshot = {
  can_quit: boolean
  service_actions?: boolean
  can_uninstall?: boolean
+ notebook?: boolean
 }

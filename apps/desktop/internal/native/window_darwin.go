@@ -17,8 +17,13 @@ void setOpenSurgeMenuBarIndicator(const char *indicator, const char *description
 void setOpenSurgeMenuBarTraffic(const char *title);
 unsigned long long openSurgeLinkIbytes(void);
 int openSurgeHostCPU(unsigned long long *used, unsigned long long *total);
+int openSurgeCoreCPU(unsigned long long *used, unsigned long long *total, int capacity);
 int openSurgeHostMemory(double *percent);
 int openSurgeCPUTempC(double *celsius);
+int openSurgeCoreTemps(double *out, int capacity);
+int openSurgeGroupTemps(double *power, double *gpu, double *performance);
+int openSurgeFanSample(double *celsius, int *tempOK, double *rpm, double *minRPM, double *maxRPM);
+bool openSurgeNotebook(void);
 void setOpenSurgeDockVisible(bool visible);
 void refreshOpenSurgeDockVisibility(void);
 void presentOpenSurgeWindow(void *window);
@@ -113,6 +118,25 @@ func LinkInboundBytes() uint64 {
 	return uint64(C.openSurgeLinkIbytes())
 }
 
+// CoreCPUTicks is each core's cumulative ticks, in kernel processor order.
+// Consecutive samples yield that core's current occupancy.
+func CoreCPUTicks() (used, total []uint64, ok bool) {
+	const maxCores = 64
+	usedBuf := make([]C.ulonglong, maxCores)
+	totalBuf := make([]C.ulonglong, maxCores)
+	n := int(C.openSurgeCoreCPU(&usedBuf[0], &totalBuf[0], C.int(maxCores)))
+	if n <= 0 {
+		return nil, nil, false
+	}
+	used = make([]uint64, n)
+	total = make([]uint64, n)
+	for i := 0; i < n; i++ {
+		used[i] = uint64(usedBuf[i])
+		total[i] = uint64(totalBuf[i])
+	}
+	return used, total, true
+}
+
 // HostCPUTicks is this Mac's cumulative CPU ticks (user+system+nice vs all
 // states). Consecutive samples yield host-wide occupancy.
 func HostCPUTicks() (used, total uint64, ok bool) {
@@ -133,6 +157,34 @@ func HostMemoryPercent() (float64, bool) {
 	return float64(percent), true
 }
 
+// CoreTemps is one Celsius reading for each logical CPU, in the same order as
+// CoreCPUTicks. Efficiency cores share the efficiency-cluster sensors, and the
+// other cores share the performance-cluster sensors.
+func CoreTemps() []float64 {
+	const maxCores = 64
+	buf := make([]C.double, maxCores)
+	n := int(C.openSurgeCoreTemps(&buf[0], C.int(maxCores)))
+	if n <= 0 {
+		return nil
+	}
+	out := make([]float64, n)
+	for i := 0; i < n; i++ {
+		out[i] = float64(buf[i])
+	}
+	return out
+}
+
+// SensorGroupTemps is each fan-curve group's temperature: drop the hottest
+// sensor when a group has at least three, then average the rest. The order is
+// voltage regulators, GPU, then performance cores.
+func SensorGroupTemps() (power, gpu, performance float64, ok bool) {
+	var regulator, graphics, cores C.double
+	if C.openSurgeGroupTemps(&regulator, &graphics, &cores) == 0 {
+		return 0, 0, 0, false
+	}
+	return float64(regulator), float64(graphics), float64(cores), true
+}
+
 // CPUTempC is the hottest CPU-core HID temperature in Celsius.
 func CPUTempC() (float64, bool) {
 	var celsius C.double
@@ -140,6 +192,20 @@ func CPUTempC() (float64, bool) {
 		return 0, false
 	}
 	return float64(celsius), true
+}
+
+// FanSample reads the live fan speed and the hottest voltage-regulator, GPU,
+// or performance-core temperature. Those are the sensors the fan curve follows.
+// Notebook reports whether this Mac has a lid. Desktop Macs do not.
+func Notebook() bool { return bool(C.openSurgeNotebook()) }
+
+func FanSample() (celsius float64, celsiusOK bool, rpm float64, rpmOK bool, minRPM, maxRPM float64) {
+	var c, r, low, high C.double
+	var ok C.int
+	if C.openSurgeFanSample(&c, &ok, &r, &low, &high) == 0 {
+		return 0, false, 0, false, 0, 0
+	}
+	return float64(c), ok != 0, float64(r), true, float64(low), float64(high)
 }
 
 func SetDockVisible(visible bool) {

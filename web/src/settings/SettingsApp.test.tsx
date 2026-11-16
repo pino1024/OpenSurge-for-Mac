@@ -14,7 +14,7 @@ vi.mock('../api', () => ({ api: { uiPreferences: vi.fn(), setUIPreferences: vi.f
 vi.mock('../components/LANAccessCard', () => ({ LANAccessCard: () => <section aria-label="LAN Management" /> }))
 vi.mock('../desktop', () => ({ isDesktop: () => true, desktopAction: vi.fn() }))
 const initial = { login: { state: 'disabled', sequence: 1, failed: false }, update: { current: 'v0.3.0-rc.1', checking: false, checked: false, failed: false, sequence: 1 }, uninstall: 'available' }
-const runtime: TraySnapshot = { indicator: 'stopped', sequence: 1, can_quit: true, can_uninstall: true, service_actions: true, status: {
+const runtime: TraySnapshot = { indicator: 'stopped', sequence: 1, can_quit: true, can_uninstall: true, service_actions: true, notebook: true, status: {
  schema_version: 1, revision: 'test', gateway: 'stopped', topology: 'same_lan', lan_ip: '192.0.2.10', dhcp: 'stopped', mihomo: 'stopped', tun: 'stopped', pf_anchor: 'unloaded', forwarding: 'disabled', ipv4_takeover: 'stopped', ipv6_takeover: 'disabled', client_count: 0, drift: false, doctor_healthy: true, recovery_required: false, warnings: [], sleep_prevention: { enabled: false, active: false }, ui_preferences: { schema_version: 1, language: 'en' },
 } }
 beforeEach(async () => {
@@ -193,7 +193,7 @@ it('keeps acknowledged sleep state when a read started before the toggle arrives
   return {}
  })
  render(<SettingsApp />)
- const toggle = screen.getByRole('switch', { name: 'Keep running with lid closed' }) as HTMLInputElement
+ const toggle = await screen.findByRole('switch', { name: 'Keep running with lid closed' }) as HTMLInputElement
  await waitFor(() => expect(toggle.disabled).toBe(false))
  await act(async () => window.dispatchEvent(new Event('opensurge:refresh')))
  await userEvent.click(toggle)
@@ -213,7 +213,7 @@ it('reports a failed sleep change and keeps the authoritative switch state', asy
   return {}
  })
  render(<SettingsApp />)
- const toggle = screen.getByRole('switch', { name: 'Keep running with lid closed' }) as HTMLInputElement
+ const toggle = await screen.findByRole('switch', { name: 'Keep running with lid closed' }) as HTMLInputElement
  await waitFor(() => expect(toggle.disabled).toBe(false))
  await userEvent.click(toggle)
  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'sleep change failed')

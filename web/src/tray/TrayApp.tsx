@@ -9,7 +9,9 @@ import type { MenuBarIndicators, SleepPreventionStatus } from '../types'
 import { isWindowVisible, watchVisibleRefresh } from '../visibility'
 import type { MenuBarStatus, TraySnapshot } from './types'
 import { TrayUtilities } from './TrayUtilities'
+import { FanControl } from './FanControl'
 import { TrayActivity } from './TrayActivity'
+import { saveTrayLayout, trayLayout } from './trayLayout'
 import './tray.css'
 
 const initial: TraySnapshot = { status: null, indicator: 'connecting', sequence: 0, can_quit: false }
@@ -72,7 +74,10 @@ export function TrayApp({ menuOnly = false }: { menuOnly?: boolean } = {}) {
  const [browserBusy, setBrowserBusy] = useState(false)
  const [browserError, setBrowserError] = useState('')
  const browserPending = useRef(false)
- const [networkExpanded, setNetworkExpanded] = useState(false)
+ const [networkExpanded, setNetworkExpanded] = useState(() => trayLayout().network)
+ const [preferencesOpen, setPreferencesOpen] = useState(() => trayLayout().preferences)
+ const toggleNetwork = () => setNetworkExpanded(value => { saveTrayLayout({ network: !value }); return !value })
+ const togglePreferences = () => setPreferencesOpen(value => { saveTrayLayout({ preferences: !value }); return !value })
  const sequence = useRef(0)
  const active = useRef(true)
  const sleepGeneration = useRef(0)
@@ -204,7 +209,7 @@ export function TrayApp({ menuOnly = false }: { menuOnly?: boolean } = {}) {
    {status?.presentation?.diagnosis_warning && <p className="tray-inline-warning">{t('上次诊断有待检查项')} <button className="tray-text-button" onClick={() => show('diagnostics')}>{t('查看诊断')}</button></p>}
    <TrayActivity gateway={status?.gateway} onOpen={show} />
    <section className={`tray-network ${networkExpanded ? 'expanded' : ''}`}>
-    <button type="button" className="tray-network-toggle" aria-expanded={networkExpanded} aria-controls="tray-network-details" onClick={() => setNetworkExpanded(value => !value)}><span>{t('网络状态')}</span><span className="tray-caption">{t(networkExpanded ? '收起详情' : '查看详情')} <svg className="tray-disclosure" viewBox="0 0 12 12" aria-hidden="true"><path d="m4 2 4 4-4 4" /></svg></span></button>
+    <button type="button" className="tray-network-toggle" aria-expanded={networkExpanded} aria-controls="tray-network-details" onClick={toggleNetwork}><span>{t('网络状态')}</span><span className="tray-caption">{t(networkExpanded ? '收起详情' : '查看详情')} <svg className="tray-disclosure" viewBox="0 0 12 12" aria-hidden="true"><path d="m4 2 4 4-4 4" /></svg></span></button>
     <div className="tray-network-reveal" id="tray-network-details" aria-hidden={!networkExpanded} inert={!networkExpanded}>
      <div className="tray-network-inner">
       {status ? <dl className="tray-status">{rows.map(([name, value]) => <div key={name}><dt>{name}</dt><dd title={value}>{value}</dd></div>)}</dl> : <p className="tray-hint">{t('状态暂不可用。后台连接恢复后会自动更新。')}</p>}
@@ -213,16 +218,21 @@ export function TrayApp({ menuOnly = false }: { menuOnly?: boolean } = {}) {
      </div>
     </div>
    </section>
-   <section className="tray-preferences">
-    <p className="tray-caption">{t('菜单栏指标')}</p>
+   <section className={`tray-preferences ${preferencesOpen ? 'expanded' : ''}`}>
+    <button type="button" className="tray-network-toggle" aria-expanded={preferencesOpen} aria-controls="tray-menu-metrics" onClick={togglePreferences}><span>{t('菜单栏指标')}</span><span className="tray-caption">{t(preferencesOpen ? '收起详情' : '查看详情')} <svg className="tray-disclosure" viewBox="0 0 12 12" aria-hidden="true"><path d="m4 2 4 4-4 4" /></svg></span></button>
+    <div className="tray-network-reveal" id="tray-menu-metrics" aria-hidden={!preferencesOpen} inert={!preferencesOpen}><div className="tray-network-inner">
     {(['download', 'cpu', 'memory', 'temperature'] as const).map(key => {
      const label = key === 'download' ? t('下行速率') : key === 'cpu' ? t('CPU 占用') : key === 'memory' ? t('内存占用') : t('CPU 温度')
      const metrics = metricsOverride ?? menuBarMetrics(status)
      return <label key={key}><span>{label}</span><input type="checkbox" role="switch" aria-label={label} checked={metrics[key]} disabled={!status} onChange={event => void changeMetric(key, event.target.checked)} /></label>
     })}
-    <label><span>{t('合盖保持运行')}<small>{t('默认关闭 · 本次运行有效')}</small></span><input type="checkbox" role="switch" aria-label={t('合盖保持运行')} checked={status?.sleep_prevention.active ?? false} disabled={!status || sleepBusy} onChange={event => void changeSleep(event.target.checked)} /></label>
-    {status?.sleep_prevention.active && <p className="tray-notice warning">{t('合盖后仍会运行，请注意耗电与散热，不要放入不通风的包内。')}</p>}
-    {status?.sleep_prevention.error && <p role="alert" className="tray-error">{status.sleep_prevention.error}</p>}
+    <FanControl />
+    {snapshot.notebook === true && <>
+     <label><span>{t('合盖保持运行')}<small>{t('默认关闭 · 本次运行有效')}</small></span><input type="checkbox" role="switch" aria-label={t('合盖保持运行')} checked={status?.sleep_prevention.active ?? false} disabled={!status || sleepBusy} onChange={event => void changeSleep(event.target.checked)} /></label>
+     {status?.sleep_prevention.active && <p className="tray-notice warning">{t('合盖后仍会运行，请注意耗电与散热，不要放入不通风的包内。')}</p>}
+     {status?.sleep_prevention.error && <p role="alert" className="tray-error">{status.sleep_prevention.error}</p>}
+    </>}
+    </div></div>
    </section>
    {error && <p role="alert" className="tray-error">{error}</p>}
   </div>

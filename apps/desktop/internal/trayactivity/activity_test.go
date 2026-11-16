@@ -53,18 +53,24 @@ func TestFormatCPUPercentAndMenuBarStats(t *testing.T) {
 	if got, want := FormatMemoryPercent(35.4), pad+"35%"; got != want {
 		t.Fatalf("FormatMemoryPercent=%q want %q", got, want)
 	}
-	got := FormatMenuBarStats(12_300, 8.2, 35.4, 42.4, true, DefaultMenuBarShow())
-	want := pad + "12K" + pad + pad + pad + "8%" + pad + pad + "35%" + pad + pad + "42C"
+	if got, want := FormatFanRPM(3500, true), "3500"; got != want {
+		t.Fatalf("FormatFanRPM=%q want %q", got, want)
+	}
+	if got, want := FormatFanRPM(0, false), pad+pad+pad+"-"; got != want {
+		t.Fatalf("missing fan=%q", got)
+	}
+	got := FormatMenuBarStats(12_300, 8.2, 35.4, 42.4, true, 3500, true, DefaultMenuBarShow())
+	want := pad + "12K" + pad + pad + pad + "8%" + pad + pad + "35%" + pad + pad + "42C" + pad + "3500"
 	if got != want {
 		t.Fatalf("FormatMenuBarStats=%q want %q", got, want)
 	}
-	if n := len([]rune(got)); n != 19 {
+	if n := len([]rune(got)); n != 24 {
 		t.Fatalf("combined width %d", n)
 	}
-	if got := FormatMenuBarStats(12_300, 8.2, 35.4, 42.4, true, MenuBarShow{Temperature: true}); got != pad+"42C" {
+	if got := FormatMenuBarStats(12_300, 8.2, 35.4, 42.4, true, 0, false, MenuBarShow{Temperature: true}); got != pad+"42C" {
 		t.Fatalf("temp-only=%q", got)
 	}
-	if got := FormatMenuBarStats(12_300, 8.2, 35.4, 42.4, true, MenuBarShow{}); got != "" {
+	if got := FormatMenuBarStats(12_300, 8.2, 35.4, 42.4, true, 0, false, MenuBarShow{}); got != "" {
 		t.Fatalf("hidden=%q", got)
 	}
 	if p, ok := CPUPercent(10, 100, 25, 200); !ok || p != 15 {

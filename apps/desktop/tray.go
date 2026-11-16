@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	_ "embed"
+	"sync"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
+	"open-mihomo-gateway/apps/desktop/internal/fan"
 	"open-mihomo-gateway/apps/desktop/internal/menustatus"
 	"open-mihomo-gateway/apps/desktop/internal/native"
 	"open-mihomo-gateway/apps/desktop/internal/trayactivity"
@@ -14,6 +16,111 @@ import (
 
 //go:embed Resources/OpenSurgeMenuBarIcon.png
 var trayIcon []byte
+
+type hostMeterSample struct {
+	CPU            float64   `json:"cpu"`
+	CPUOK          bool      `json:"cpu_ok"`
+	Memory         float64   `json:"memory"`
+	MemoryOK       bool      `json:"memory_ok"`
+	Temperature    float64   `json:"temperature"`
+	TempOK         bool      `json:"temperature_ok"`
+	FanRPM         float64   `json:"fan_rpm"`
+	FanOK          bool      `json:"fan_ok"`
+	FanVisible     bool      `json:"fan_visible"`
+	FanMin         float64   `json:"fan_min"`
+	FanMax         float64   `json:"fan_max"`
+	ControlTemp    float64   `json:"control_temp"`
+	ControlPercent float64   `json:"control_percent"`
+	ControlOK      bool      `json:"control_ok"`
+	ControlActive  bool      `json:"control_active"`
+	Cores          []float64 `json:"cores"`
+	CoreTemps      []float64 `json:"core_temps"`
+	PowerTemp      float64   `json:"power_temp"`
+	GPUTemp        float64   `json:"gpu_temp"`
+	PerfTemp       float64   `json:"perf_temp"`
+}
+
+type hostMeterState struct {
+	mu     sync.Mutex
+	sample hostMeterSample
+}
+
+func readFanControl() (fan.Status, bool) {
+	path, err := fan.StatusPath()
+	if err != nil {
+		return fan.Status{}, false
+	}
+	return fan.ReadStatus(path)
+}
+
+func (h *desktopHost) recordHostMeters(cpu, memory, temp, fan, fanMin, fanMax float64, cpuOK, memoryOK, tempOK, fanOK, fanVisible bool, cores, coreTemps []float64, powerTemp, gpuTemp, perfTemp float64) {
+	control, controlOK := readFanControl()
+	h.meters.mu.Lock()
+	defer h.meters.mu.Unlock()
+	sample := &h.meters.sample
+	sample.CPU, sample.CPUOK = cpu, cpuOK
+	sample.Memory, sample.MemoryOK = memory, memoryOK
+	sample.Temperature, sample.TempOK = temp, tempOK
+	sample.FanRPM, sample.FanOK, sample.FanVisible = fan, fanOK, fanVisible
+	if fanMax > fanMin && fanMin >= 0 {
+		sample.FanMin, sample.FanMax = fanMin, fanMax
+	} else {
+		sample.FanMin, sample.FanMax = 0, 0
+	}
+	sample.ControlTemp, sample.ControlPercent, sample.ControlActive = control.Temp, control.Percent, control.Active
+	sample.ControlOK = controlOK
+	if cores == nil {
+		sample.Cores = []float64{}
+	} else {
+		sample.Cores = append([]float64(nil), cores...)
+	}
+	if coreTemps == nil {
+		sample.CoreTemps = []float64{}
+	} else {
+		sample.CoreTemps = append([]float64(nil), coreTemps...)
+	}
+	sample.PowerTemp, sample.GPUTemp, sample.PerfTemp = powerTemp, gpuTemp, perfTemp
+}
+
+func (h *desktopHost) hostMeters() hostMeterSample {
+	h.meters.mu.Lock()
+	defer h.meters.mu.Unlock()
+	sample := h.meters.sample
+	if sample.Cores == nil {
+		sample.Cores = []float64{}
+	} else {
+		sample.Cores = append([]float64(nil), sample.Cores...)
+	}
+	if sample.CoreTemps == nil {
+		sample.CoreTemps = []float64{}
+	} else {
+		sample.CoreTemps = append([]float64(nil), sample.CoreTemps...)
+	}
+	return sample
+}
+
+func (h *desktopHost) fanControl() fan.Config {
+	path, err := fan.Path()
+	if err != nil {
+		return fan.Default()
+	}
+	cfg, err := fan.Load(path)
+	if err != nil {
+		return fan.Default()
+	}
+	return cfg
+}
+
+func (h *desktopHost) setFan(cfg fan.Config) (fan.Config, error) {
+	path, err := fan.Path()
+	if err != nil {
+		return fan.Config{}, err
+	}
+	if err := fan.Save(path, cfg); err != nil {
+		return fan.Config{}, err
+	}
+	return cfg, nil
+}
 
 func (h *desktopHost) showTray() {
 	_ = h.tray.PositionWindow(h.popup, 8)
@@ -25,6 +132,9 @@ func (h *desktopHost) runMenuBarTraffic(ctx context.Context) {
 	var sampledAt time.Time
 	var prevCPUUsed, prevCPUTotal uint64
 	var cpuPercent, memPercent float64
+	var memOK bool
+	var prevCoreUsed, prevCoreTotal []uint64
+	var corePercents []float64
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
@@ -37,10 +147,14 @@ func (h *desktopHost) runMenuBarTraffic(ctx context.Context) {
 			h.mu.Unlock()
 			current := native.LinkInboundBytes()
 			cpuUsed, cpuTotal, cpuOK := native.HostCPUTicks()
+			coreUsed, coreTotal, coreTicksOK := native.CoreCPUTicks()
 			if sampledAt.IsZero() {
 				previous, sampledAt = current, now
 				if cpuOK {
 					prevCPUUsed, prevCPUTotal = cpuUsed, cpuTotal
+				}
+				if coreTicksOK {
+					prevCoreUsed, prevCoreTotal = coreUsed, coreTotal
 				}
 				if next, ok := native.HostMemoryPercent(); ok {
 					memPercent = next
@@ -53,21 +167,60 @@ func (h *desktopHost) runMenuBarTraffic(ctx context.Context) {
 				link = int64(float64(current-previous) / elapsed)
 			}
 			previous, sampledAt = current, now
+			var percentOK bool
 			if cpuOK {
 				if next, ok := trayactivity.CPUPercent(prevCPUUsed, prevCPUTotal, cpuUsed, cpuTotal); ok {
 					cpuPercent = next
+					percentOK = true
 				}
 				prevCPUUsed, prevCPUTotal = cpuUsed, cpuTotal
 			}
+			if coreTicksOK && len(prevCoreUsed) == len(coreUsed) {
+				nextCores := make([]float64, len(coreUsed))
+				ready := false
+				for i := range coreUsed {
+					if percent, ok := trayactivity.CPUPercent(prevCoreUsed[i], prevCoreTotal[i], coreUsed[i], coreTotal[i]); ok {
+						nextCores[i] = percent
+						ready = true
+					}
+				}
+				if ready {
+					corePercents = nextCores
+				}
+			}
+			if coreTicksOK {
+				prevCoreUsed, prevCoreTotal = coreUsed, coreTotal
+			}
 			if next, ok := native.HostMemoryPercent(); ok {
 				memPercent = next
+				memOK = true
 			}
+			fanC, fanTempOK, fanRPM, fanOK, fanMin, fanMax := native.FanSample()
 			var tempC float64
 			var tempOK bool
-			if show.Temperature {
+			if fanTempOK {
+				tempC, tempOK = fanC, true
+			} else {
 				tempC, tempOK = native.CPUTempC()
 			}
-			native.SetMenuBarTraffic(trayactivity.FormatMenuBarStats(trayactivity.MacDownloadRate(link, h.activity.Snapshot()), cpuPercent, memPercent, tempC, tempOK, show))
+			var cores []float64
+			if len(corePercents) > 0 {
+				cores = corePercents
+			}
+			fanVisible := h.fanControl().Visible
+			show.Fan = fanVisible
+			powerTemp, gpuTemp, perfTemp, _ := native.SensorGroupTemps()
+			if powerTemp < 0 {
+				powerTemp = 0
+			}
+			if gpuTemp < 0 {
+				gpuTemp = 0
+			}
+			if perfTemp < 0 {
+				perfTemp = 0
+			}
+			h.recordHostMeters(cpuPercent, memPercent, tempC, fanRPM, fanMin, fanMax, percentOK, memOK, tempOK, fanOK, fanVisible, cores, native.CoreTemps(), powerTemp, gpuTemp, perfTemp)
+			native.SetMenuBarTraffic(trayactivity.FormatMenuBarStats(trayactivity.MacDownloadRate(link, h.activity.Snapshot()), cpuPercent, memPercent, tempC, tempOK, fanRPM, fanOK, show))
 		}
 	}
 }
@@ -125,6 +278,7 @@ func (h *desktopHost) menuStatusChanged(snapshot menustatus.Snapshot) {
 				CPU:         status.UIPreferences.MenuBar.CPU,
 				Memory:      status.UIPreferences.MenuBar.Memory,
 				Temperature: status.UIPreferences.MenuBar.Temperature,
+				Fan:         true,
 			}
 		}
 	}

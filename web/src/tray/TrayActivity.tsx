@@ -5,16 +5,25 @@ import { t } from '../i18n'
 import { buildSmoothChart } from '../trafficChart'
 import { formatRate } from '../trafficFormat'
 import type { LocalRoutingMode } from '../types'
-import { useTrayActivity } from './useTrayActivity'
+import { FanCurve } from './FanCurve'
+import { saveTrayLayout, trayLayout } from './trayLayout'
+import { useHostMeters, useTrayActivity } from './useTrayActivity'
 
 export function TrayActivity({ gateway, onOpen }: { gateway?: string; onOpen: (page: string, options?: { owner?: string; section?: 'active-devices' }) => void }) {
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [devicesOpen, setDevicesOpen] = useState(() => trayLayout().devices)
+  const [routingOpen, setRoutingOpen] = useState(() => trayLayout().routing)
   const [modeBusy, setModeBusy] = useState(false)
   const [modeError, setModeError] = useState('')
   const [aliasByIP, setAliasByIP] = useState<Record<string, string>>({})
   const detailID = useId()
   const toggle = (key: string) => setExpanded(current => current === key ? null : key)
+  const toggleDevices = () => setDevicesOpen(current => { saveTrayLayout({ devices: !current }); return !current })
+  const toggleRouting = () => setRoutingOpen(current => { saveTrayLayout({ routing: !current }); return !current })
   const { traffic, routing, history, deviceKeys, trafficFailed, routingFailed, applyMode } = useTrayActivity(gateway)
+  const [chart, setChart] = useState<'cpu' | 'traffic' | 'fan'>(() => trayLayout().chart)
+  const selectChart = (next: 'cpu' | 'traffic' | 'fan') => { setChart(next); saveTrayLayout({ chart: next }) }
+  const meters = useHostMeters(chart === 'cpu' || chart === 'fan')
   const running = gateway === 'running' || gateway === 'degraded'
   const sampled = Boolean(traffic && history.length > 1)
   const maximum = Math.max(1, ...history.flatMap(point => [point.download, point.upload]))
@@ -36,8 +45,40 @@ export function TrayActivity({ gateway, onOpen }: { gateway?: string; onOpen: (p
   const devices = traffic ? [traffic.gateway_local, ...deviceKeys.flatMap(key => traffic.devices.filter(device => connectionOwnerKey(device) === key))] : []
   const activeDevices = traffic?.devices.filter(device => device.active_connections > 0).length ?? 0
   const connections = traffic ? traffic.gateway_local.active_connections + traffic.totals.active_connections + (traffic.unclassified_connections ?? 0) : 0
+  const cpuSegments = 14
+  const chartTitle = chart === 'cpu' ? '本机状态' : chart === 'fan' ? '风扇调控' : '网络流量'
+  const chartLabel = chart === 'cpu' ? '本机状态' : chart === 'fan' ? '风扇调控' : '经 OpenSurge 的实时流量'
   return <>
-    <section className={`tray-traffic ${running && sampled ? 'expanded' : ''}`} aria-label={t('经 OpenSurge 的实时流量')}>
+    <section className={`tray-traffic ${chart !== 'traffic' || (running && sampled) ? 'expanded' : ''}`} aria-label={t(chartLabel)}>
+      <div className="tray-chart-header">
+        <span>{t(chartTitle)}</span>
+        <div className="tray-mode-switch tray-chart-switch" role="group" aria-label={t('图表内容')}>
+          <button type="button" aria-pressed={chart === 'cpu'} onClick={() => selectChart('cpu')}>CPU</button>
+          <button type="button" aria-pressed={chart === 'traffic'} onClick={() => selectChart('traffic')}>{t('流量')}</button>
+          <button type="button" aria-pressed={chart === 'fan'} onClick={() => selectChart('fan')}>{t('风扇')}</button>
+        </div>
+      </div>
+      {chart === 'fan' ? <FanCurve meters={meters} /> : chart === 'cpu' ? <div className="tray-cpu">
+        <div className="tray-rates">
+          <div><span>CPU</span><strong>{meters.cpu_ok ? `${Math.round(meters.cpu)}%` : '—'}</strong></div>
+          <div><span>{t('内存')}</span><strong>{meters.memory_ok ? `${Math.round(meters.memory)}%` : '—'}</strong></div>
+        </div>
+        <div className="cpu-bars" role="img" aria-label={t('每个核的当前占用')}>
+          {meters.cores.map((value, index) => {
+            const lit = Math.round(Math.min(100, Math.max(0, value)) / 100 * cpuSegments)
+            const temp = meters.core_temps[index]
+            const tempLabel = typeof temp === 'number' && temp > 0 ? `${Math.round(temp)}°` : ''
+            return <div className="cpu-bar" key={index} title={`${index + 1} · ${Math.round(value)}%${tempLabel ? ` · ${Math.round(temp)}°C` : ''}`}>
+              <div className="cpu-segs">{Array.from({ length: cpuSegments }, (_, segment) => <span key={segment} className={segment < lit ? 'cpu-seg on' : 'cpu-seg'} />)}</div>
+              {tempLabel && <span className="cpu-temp">{tempLabel}</span>}
+            </div>
+          })}
+        </div>
+        {meters.cores.length === 0 && <p className="tray-caption" role="status">{t('正在采样 CPU…')}</p>}
+        {(meters.power_temp > 0 || meters.gpu_temp > 0 || meters.perf_temp > 0) && <div className="cpu-groups">
+          {([[t('供电'), meters.power_temp], ['GPU', meters.gpu_temp], ['CPU', meters.perf_temp]] as const).map(([name, value]) => <span key={name}>{name}<b>{value > 0 ? `${Math.round(value)}°` : '—'}</b></span>)}
+        </div>}
+      </div> : <>
       <div className="tray-traffic-reveal" aria-hidden={!running || !sampled}><div className="tray-detail-inner"><div className="tray-rates">
         <div><span><i className="download-key" />{t('下载')}</span><strong>{sampled ? formatRate(traffic!.gateway_rates.download) : '—'}</strong></div>
         <div><span><i className="upload-key" />{t('上传')}</span><strong>{sampled ? formatRate(traffic!.gateway_rates.upload) : '—'}</strong></div>
@@ -47,21 +88,22 @@ export function TrayActivity({ gateway, onOpen }: { gateway?: string; onOpen: (p
         {sampled && <><path className="download-area" d={download.areaPath} /><path className="download-line" d={download.linePath} /><path className="upload-line" d={upload.linePath} /></>}
       </svg></div></div>
       <div className="tray-traffic-caption"><p className="tray-caption" role="status">{t(gateway === 'stopped' ? '启动网关后显示实时流量' : !running ? '等待网关状态…' : trafficFailed ? '流量暂不可用' : !sampled ? '正在采样流量…' : '近 60 秒 · 经 OpenSurge 的流量')}</p>{gateway === 'stopped' && <button className="tray-text-button" onClick={() => onOpen('network')}>{t('前往启动')} <span aria-hidden="true">›</span></button>}</div>
+      </>}
     </section>
-    <div className={`tray-routing-group ${expanded === 'routing' ? 'expanded' : ''}`}>
+    <div className={`tray-routing-group ${routingOpen ? 'expanded' : ''}`}>
       <div className="tray-routing-header">
-        <span>{t('本机出口')}</span>
-        <div className="tray-mode-switch" role="group" aria-label={t('本机出口')}>
-          <button type="button" aria-pressed={routing ? routing.mode !== 'direct' : false} disabled={!running || !routing || modeBusy} onClick={() => void setMode('rule')}>{t('旁路由')}</button>
-          <button type="button" aria-pressed={routing?.mode === 'direct'} disabled={!running || !routing || modeBusy} onClick={() => void setMode('direct')}>{t('直连')}</button>
+        <span>{t('本机出口')}{!routing && <small>{t(!running ? '网关未运行' : routingFailed ? '暂不可用' : '正在读取…')}</small>}</span>
+        <div className="tray-routing-actions">
+          <div className="tray-mode-switch" role="group" aria-label={t('本机出口')}>
+            <button type="button" aria-pressed={routing ? routing.mode !== 'direct' : false} disabled={!running || !routing || modeBusy} onClick={() => void setMode('rule')}>{t('旁路由')}</button>
+            <button type="button" aria-pressed={routing?.mode === 'direct'} disabled={!running || !routing || modeBusy} onClick={() => void setMode('direct')}>{t('直连')}</button>
+          </div>
+          <button type="button" className="tray-routing-disclosure" aria-label={t('本机出口详情')} aria-expanded={routingOpen} aria-controls={`${detailID}-routing`} onClick={toggleRouting}><svg className="tray-disclosure" viewBox="0 0 12 12" aria-hidden="true"><path d="m4 2 4 4-4 4" /></svg></button>
         </div>
       </div>
       {modeError && <p className="tray-error" role="alert">{modeError}</p>}
-      <button className="tray-link-row tray-routing" aria-expanded={expanded === 'routing'} aria-controls={`${detailID}-routing`} onClick={() => toggle('routing')}>
-        <span>{t('本机出口详情')}</span><span className="tray-row-value">{mode ? t(mode) : t(!running ? '网关未运行' : routingFailed ? '暂不可用' : '正在读取…')}{routing?.mode === 'global' && routing.global_group && <small title={routing.global_group.selected}>{routing.global_group.selected}</small>}</span><svg className="tray-disclosure" viewBox="0 0 12 12" aria-hidden="true"><path d="m4 2 4 4-4 4" /></svg>
-      </button>
-      <div className="tray-detail-reveal" id={`${detailID}-routing`} aria-hidden={expanded !== 'routing'} inert={expanded !== 'routing'}><div className="tray-detail-inner"><div className="tray-routing-details">
-        <p className="tray-hint">{t('仅影响本机 Mac，下游设备保持各自的出口设置。')}</p>
+      <div className="tray-detail-reveal" id={`${detailID}-routing`} aria-hidden={!routingOpen} inert={!routingOpen}><div className="tray-detail-inner"><div className="tray-routing-details">
+        <p className="tray-hint">{t(routingFailed ? '暂不可用' : '仅影响本机 Mac，下游设备保持各自的出口设置。')}</p>
         {routing && <dl className="tray-status">
           <div><dt>{t('出口方式')}</dt><dd>{mode ? t(mode) : '—'}</dd></div>
           {routing.global_group && <div><dt>{t('当前出口')}</dt><dd title={routing.global_group.selected}>{routing.global_group.selected}</dd></div>}
@@ -72,8 +114,11 @@ export function TrayActivity({ gateway, onOpen }: { gateway?: string; onOpen: (p
         <button className="tray-text-button" onClick={() => onOpen('devices')}>{t('在桌面窗口中设置')} <span aria-hidden="true">↗</span></button>
       </div></div></div>
     </div>
-    <section className="tray-devices" aria-label={t('活跃设备')}>
-      <div className="tray-section-heading"><h2>{t('活跃设备')}</h2><button className="tray-text-button" onClick={() => onOpen('dashboard', { section: 'active-devices' })}>{t('查看全部')} <span aria-hidden="true">›</span></button></div>
+    <section className={`tray-devices ${devicesOpen ? 'expanded' : ''}`} aria-label={t('活跃设备')}>
+      <div className="tray-section-heading">
+        <button type="button" className="tray-network-toggle" aria-expanded={devicesOpen} aria-controls="tray-device-list" onClick={toggleDevices}><h2>{t('活跃设备')}</h2><span className="tray-caption">{t(devicesOpen ? '收起详情' : '查看详情')} <svg className="tray-disclosure" viewBox="0 0 12 12" aria-hidden="true"><path d="m4 2 4 4-4 4" /></svg></span></button>
+      </div>
+      <div className="tray-network-reveal" id="tray-device-list" aria-hidden={!devicesOpen} inert={!devicesOpen}><div className="tray-network-inner">
       {devices.length ? <div className="tray-device-list">{devices.map((device, index) => {
         const key = connectionOwnerKey(device)
         const name = index === 0 ? t('本机 Mac') : Object.hasOwn(aliasByIP, device.ip) ? aliasByIP[device.ip] || connectionDeviceName({ ...device, name: '' }) : connectionDeviceName(device)
@@ -93,7 +138,8 @@ export function TrayActivity({ gateway, onOpen }: { gateway?: string; onOpen: (p
         <button className="tray-text-button" onClick={() => onOpen('connections', { owner: key })} aria-label={t('查看 {{name}} 的连接', { name })}>{t('在桌面窗口中查看连接')} <span aria-hidden="true">↗</span></button>
       </div></div></div></div>
       })}</div> : <p className="tray-empty">{t(!running ? '启动网关后显示活跃设备' : trafficFailed ? '设备流量暂不可用' : '正在读取活跃设备…')}</p>}
-      <p className="tray-caption">{traffic ? t('活跃下游 {{devices}} 台 · 总连接 {{connections}}', { devices: activeDevices, connections }) : t('本机 Mac 与下游设备分别统计')}</p>
+      <div className="tray-device-footer"><p className="tray-caption">{traffic ? t('活跃下游 {{devices}} 台 · 总连接 {{connections}}', { devices: activeDevices, connections }) : t('本机 Mac 与下游设备分别统计')}</p><button className="tray-text-button" onClick={() => onOpen('dashboard', { section: 'active-devices' })}>{t('查看全部')} <span aria-hidden="true">›</span></button></div>
+      </div></div>
     </section>
   </>
 }

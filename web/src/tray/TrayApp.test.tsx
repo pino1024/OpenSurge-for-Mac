@@ -3,6 +3,7 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { TrayApp, TrayMenuApp, diagnosticSummary } from './TrayApp'
+import { resetFanConfig } from './fanConfig'
 import { desktopAction, copyText, isDesktop } from '../desktop'
 import { api } from '../api'
 import { activateLanguage, prepareLanguage } from '../i18n'
@@ -10,10 +11,11 @@ import type { TraySnapshot } from './types'
 
 vi.mock('../desktop', () => ({ desktopAction: vi.fn(), copyText: vi.fn(), isDesktop: vi.fn() }))
 vi.mock('../api', () => ({ api: { setUIPreferences: vi.fn() } }))
-const fixture: TraySnapshot = { indicator: 'stopped', sequence: 1, can_quit: true, status: {
+const fixture: TraySnapshot = { indicator: 'stopped', sequence: 1, can_quit: true, notebook: true, status: {
  schema_version: 1, revision: 'test', gateway: 'stopped', topology: 'same_lan', lan_ip: '192.0.2.10', dhcp: 'stopped', mihomo: 'stopped', tun: 'stopped', pf_anchor: 'unloaded', forwarding: 'disabled', ipv4_takeover: 'stopped', ipv6_takeover: 'disabled', client_count: 0, drift: false, doctor_healthy: false, recovery_required: false, warnings: [], sleep_prevention: { enabled: false, active: false }, ui_preferences: { schema_version: 1, language: 'en' },
 } }
 beforeEach(async () => {
+ resetFanConfig()
  await prepareLanguage('en'); activateLanguage('en')
  vi.mocked(isDesktop).mockReturnValue(false)
  vi.mocked(desktopAction).mockImplementation(async () => fixture)
@@ -125,6 +127,7 @@ it('opens the existing main window and copies a credential-free diagnostic summa
  await screen.findByText('192.0.2.10', { selector: '.tray-subtitle span' })
  await userEvent.click(screen.getByRole('button', { name: /Open OpenSurge/ }))
  expect(desktopAction).toHaveBeenCalledWith('show-main', { page: 'dashboard' })
+ await userEvent.click(screen.getByRole('button', { name: /Active devices/ }))
  await userEvent.click(screen.getByRole('button', { name: /View all/ }))
  expect(desktopAction).toHaveBeenCalledWith('show-main', { page: 'dashboard', section: 'active-devices' })
  await userEvent.click(screen.getByLabelText('More actions'))
@@ -157,9 +160,10 @@ it('presents recovery before runtime state and clears actionable controls on dis
  await userEvent.click(screen.getByLabelText('More actions'))
  expect((screen.getByRole('button', { name: 'Quit OpenSurge…' }) as HTMLButtonElement).disabled).toBe(true)
  expect((screen.getByRole('button', { name: 'Quit Desktop App Only…' }) as HTMLButtonElement).disabled).toBe(false)
- vi.mocked(desktopAction).mockResolvedValue({ status: null, sequence: 2, indicator: 'unreachable', can_quit: false })
+ vi.mocked(desktopAction).mockResolvedValue({ status: null, sequence: 2, indicator: 'unreachable', can_quit: false, notebook: true })
  await userEvent.click(screen.getByRole('button', { name: 'Refresh status' }))
  await waitFor(() => expect(screen.queryByText('192.0.2.10')).toBeNull())
+ await openMenuMeters()
  expect((screen.getByRole('switch', { name: 'Keep running with lid closed' }) as HTMLInputElement).disabled).toBe(true)
  expect(screen.queryByRole('button', { name: 'Continue recovery' })).toBeNull()
 })
@@ -173,9 +177,15 @@ it('routes full exit to native confirmation only when the service snapshot permi
  expect(desktopAction).toHaveBeenCalledWith('quit', { full: true })
 })
 
+async function openMenuMeters() {
+ const toggle = screen.getByRole('button', { name: /Menu bar meters/ })
+ if (toggle.getAttribute('aria-expanded') !== 'true') await userEvent.click(toggle)
+}
+
 it('toggles menu bar meters from the panel switches', async () => {
  render(<TrayApp />)
  await screen.findByText('192.0.2.10', { selector: '.tray-subtitle span' })
+ await openMenuMeters()
  const cpu = screen.getByRole('switch', { name: 'CPU usage' }) as HTMLInputElement
  expect(cpu.checked).toBe(true)
  await userEvent.click(cpu)
@@ -191,8 +201,31 @@ it('acknowledges sleep changes once and shows the heat warning', async () => {
  })
  render(<TrayApp />)
  await screen.findByText('192.0.2.10', { selector: '.tray-subtitle span' })
+ await openMenuMeters()
  await userEvent.click(screen.getByRole('switch', { name: 'Keep running with lid closed' }))
  await waitFor(() => expect((screen.getByRole('switch', { name: 'Keep running with lid closed' }) as HTMLInputElement).checked).toBe(true))
  expect(vi.mocked(desktopAction).mock.calls.filter(([action]) => action === 'sleep-prevention')).toEqual([['sleep-prevention', { enabled: true }]])
  expect(await screen.findByText(/unventilated bag/)).toBeTruthy()
+})
+
+it('hides lid-closed running on a desktop Mac', async () => {
+ vi.mocked(desktopAction).mockImplementation(async () => ({ ...fixture, notebook: false }))
+ render(<TrayApp />)
+ await screen.findByText('192.0.2.10', { selector: '.tray-subtitle span' })
+ await openMenuMeters()
+ expect(screen.queryByRole('switch', { name: 'Keep running with lid closed' })).toBeNull()
+ expect(screen.getByRole('switch', { name: 'Fan speed' })).toBeTruthy()
+})
+
+it('hides the fan speed and turns the curve off from the chart', async () => {
+ const points = [{ c: 60, p: 0 }, { c: 72, p: 26 }, { c: 85, p: 100 }]
+ render(<TrayApp />)
+ await screen.findByText('192.0.2.10', { selector: '.tray-subtitle span' })
+ await openMenuMeters()
+ await userEvent.click(screen.getByRole('switch', { name: 'Fan speed' }))
+ await waitFor(() => expect(desktopAction).toHaveBeenCalledWith('fan-control', { fan_visible: false, fan_enabled: true, fan_points: points }))
+ await userEvent.click(screen.getByRole('button', { name: 'Fan' }))
+ await userEvent.click(screen.getByRole('switch', { name: 'Use fan curve' }))
+ await waitFor(() => expect(desktopAction).toHaveBeenCalledWith('fan-control', { fan_visible: false, fan_enabled: false, fan_points: points }))
+ expect(api.setUIPreferences).not.toHaveBeenCalled()
 })
