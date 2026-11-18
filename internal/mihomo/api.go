@@ -28,8 +28,14 @@ type TUNRuntimeState struct {
 	IPv6Addresses []string `json:"ipv6_addresses,omitempty"`
 }
 
+const (
+	TrafficModeRule   = "rule"
+	TrafficModeDirect = "direct"
+)
+
 type runtimeConfigResponse struct {
-	TUN *struct {
+	Mode string `json:"mode"`
+	TUN  *struct {
 		Enable        bool     `json:"enable"`
 		Device        string   `json:"device"`
 		IPv4Addresses []string `json:"inet4-address"`
@@ -271,6 +277,45 @@ func CloseConnections(ctx context.Context, cfg config.Config, connectionIDs []st
 	return closeConnectionsWithClient(ctx, cfg, client, connectionIDs)
 }
 
+func CloseAllConnections(ctx context.Context, cfg config.Config) error {
+	client := &http.Client{Timeout: 2 * time.Second}
+	return closeAllConnectionsWithClient(ctx, cfg, client)
+}
+
+func FetchTrafficMode(ctx context.Context, cfg config.Config) (string, error) {
+	client := &http.Client{Timeout: 2 * time.Second}
+	return fetchTrafficModeWithClient(ctx, cfg, client)
+}
+
+func PatchTrafficMode(ctx context.Context, cfg config.Config, mode string) error {
+	client := &http.Client{Timeout: 2 * time.Second}
+	return patchTrafficModeWithClient(ctx, cfg, client, mode)
+}
+
+func TrafficModeForProxyEnabled(enabled bool) string {
+	if enabled {
+		return TrafficModeRule
+	}
+	return TrafficModeDirect
+}
+
+func ProxyEnabledFromTrafficMode(mode string) bool {
+	return strings.ToLower(strings.TrimSpace(mode)) != TrafficModeDirect
+}
+
+func NormalizeTrafficMode(mode string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case TrafficModeRule:
+		return TrafficModeRule, nil
+	case TrafficModeDirect:
+		return TrafficModeDirect, nil
+	case "":
+		return TrafficModeRule, nil
+	default:
+		return "", fmt.Errorf("unsupported traffic mode %q", mode)
+	}
+}
+
 func FetchProviders(ctx context.Context, cfg config.Config) (ProvidersSnapshot, error) {
 	client := &http.Client{Timeout: 2 * time.Second}
 	return fetchProvidersWithClient(ctx, cfg, client)
@@ -335,6 +380,76 @@ func fetchTUNRuntimeStateWithClient(ctx context.Context, cfg config.Config, clie
 		IPv4Addresses: body.TUN.IPv4Addresses,
 		IPv6Addresses: body.TUN.IPv6Addresses,
 	}, nil
+}
+
+func fetchTrafficModeWithClient(ctx context.Context, cfg config.Config, client *http.Client) (string, error) {
+	req, err := newAPIRequest(ctx, cfg, http.MethodGet, "/configs", nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("mihomo API returned %s", resp.Status)
+	}
+	var body runtimeConfigResponse
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		if errors.Is(err, io.EOF) {
+			return "", fmt.Errorf("empty mihomo API response")
+		}
+		return "", err
+	}
+	mode := strings.ToLower(strings.TrimSpace(body.Mode))
+	if mode == "" {
+		return TrafficModeRule, nil
+	}
+	return mode, nil
+}
+
+func patchTrafficModeWithClient(ctx context.Context, cfg config.Config, client *http.Client, mode string) error {
+	normalized, err := NormalizeTrafficMode(mode)
+	if err != nil {
+		return err
+	}
+	payload, err := json.Marshal(map[string]string{"mode": normalized})
+	if err != nil {
+		return err
+	}
+	req, err := newAPIRequest(ctx, cfg, http.MethodPatch, "/configs", bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("mihomo API returned %s", resp.Status)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return nil
+}
+
+func closeAllConnectionsWithClient(ctx context.Context, cfg config.Config, client *http.Client) error {
+	req, err := newAPIRequest(ctx, cfg, http.MethodDelete, "/connections", nil)
+	if err != nil {
+		return err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("mihomo API returned %s", resp.Status)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return nil
 }
 
 func fetchProxyGroupsWithClient(ctx context.Context, cfg config.Config, client *http.Client) ([]ProxyGroup, error) {

@@ -22,6 +22,8 @@ mihomo 顶层 `mode: global` 或 `mode: direct` 会改变同一进程内的所�
 AND,((IN-TYPE,TUN),(SRC-IP-CIDR,198.18.0.1/32),(NETWORK,TCP)),open-surge/mac-mode-tcp
 AND,((IN-TYPE,TUN),(IN-NAME,DEFAULT-TUN),(SRC-IP-CIDR,fdfe:dcba:9877::1/128),(NETWORK,TCP)),open-surge/mac-mode-tcp
 AND,((IN-TYPE,SOCKS/HTTP),(SRC-IP-CIDR,127.0.0.0/8),(NETWORK,TCP)),open-surge/mac-mode-tcp
+AND,((IN-NAME,DEFAULT-MIXED),(SRC-IP-CIDR,127.0.0.0/8),(NETWORK,TCP)),open-surge/mac-mode-tcp
+AND,((IN-TYPE,HTTPS),(SRC-IP-CIDR,127.0.0.0/8),(NETWORK,TCP)),open-surge/mac-mode-tcp
 ```
 
 网关 LAN IPv4 也有一组显式代理入口规则。每个入口在分派到模式组前先生成

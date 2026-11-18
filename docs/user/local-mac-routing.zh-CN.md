@@ -26,7 +26,8 @@ OpenSurge 同时约束 **入口类型** 和 **源地址**：
 - TUN 入口中源地址为 mihomo 本机 TUN 身份 `198.18.0.1` 的连接；
 - `DEFAULT-TUN` 入口中，源地址精确为本机 host-TUN 身份
   `fdfe:dcba:9877::1/128` 的 IPv6 连接；
-- 从 `127.0.0.0/8` 或网关 Mac LAN IPv4 进入 mihomo mixed-port 的本机显式代理连接。
+- 从 `127.0.0.0/8` 或网关 Mac LAN IPv4 进入 mihomo mixed-port 的本机显式代理连接，
+  包括 HTTP CONNECT（连接元数据为 `HTTPS`，不只是 `SOCKS/HTTP`）。
 
 下游 IPv4 连接使用自己的 LAN IPv4；下游 IPv6 则从独立的 `opensurge-ipv6` packet
 listener 进入，携带设备 `IN-USER`，源地址位于 `fdfe:dcba:9878::/64`。它们都不会命中

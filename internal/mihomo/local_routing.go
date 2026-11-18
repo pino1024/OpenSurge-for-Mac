@@ -24,6 +24,9 @@ const (
 	// SystemTUNListenerName is the inbound name assigned to Mihomo's top-level
 	// TUN, shared by Mac-local routing and connection ownership checks.
 	SystemTUNListenerName = "DEFAULT-TUN"
+	// SystemMixedListenerName is the inbound name for mixed-port. HTTP CONNECT
+	// reports as HTTPS, which does not match IN-TYPE,SOCKS/HTTP.
+	SystemMixedListenerName = "DEFAULT-MIXED"
 )
 
 var localRoutingIPv6DestinationCIDRs = []string{
@@ -324,11 +327,28 @@ func buildLocalRoutingPolicy(cfg config.Config, imported *importedProfile) local
 	return localRoutingGeneratedPolicy{Groups: groups, Rules: rules}
 }
 
-func localRoutingInbounds(cfg config.Config) []localRoutingInbound {
-	inbounds := []localRoutingInbound{
-		{match: []string{"IN-TYPE,SOCKS/HTTP", "SRC-IP-CIDR,127.0.0.0/8"}},
-		{match: []string{"IN-TYPE,SOCKS/HTTP", "SRC-IP-CIDR," + cfg.Gateway.LANIP + "/32"}},
+func localRoutingExplicitInbounds(cfg config.Config) []localRoutingInbound {
+	sources := []string{"127.0.0.0/8"}
+	if ip := strings.TrimSpace(cfg.Gateway.LANIP); ip != "" {
+		sources = append(sources, ip+"/32")
 	}
+	kinds := []string{
+		"IN-NAME," + SystemMixedListenerName,
+		"IN-TYPE,HTTPS",
+		"IN-TYPE,HTTP",
+		"IN-TYPE,SOCKS/HTTP",
+	}
+	inbounds := make([]localRoutingInbound, 0, len(kinds)*len(sources))
+	for _, source := range sources {
+		for _, kind := range kinds {
+			inbounds = append(inbounds, localRoutingInbound{match: []string{kind, "SRC-IP-CIDR," + source}})
+		}
+	}
+	return inbounds
+}
+
+func localRoutingInbounds(cfg config.Config) []localRoutingInbound {
+	inbounds := localRoutingExplicitInbounds(cfg)
 	if !cfg.Transparent.TUNEnabled() {
 		return inbounds
 	}

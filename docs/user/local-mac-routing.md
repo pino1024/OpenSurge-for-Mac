@@ -31,7 +31,7 @@ OpenSurge constrains both the **inbound type** and the **source address**:
 - IPv6 connections on the `DEFAULT-TUN` inbound with the exact host-TUN
   source identity `fdfe:dcba:9877::1/128`;
 - explicit mixed-port connections from `127.0.0.0/8` or the gateway Mac's LAN
-  IPv4 address.
+  IPv4 address, including HTTP CONNECT (`HTTPS`, not only `SOCKS/HTTP`).
 
 Downstream IPv4 connections carry their own LAN source. Downstream IPv6 enters
 through the separate `opensurge-ipv6` packet listener with a device `IN-USER`

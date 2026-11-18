@@ -1,5 +1,6 @@
 #import <Cocoa/Cocoa.h>
 #import <CoreFoundation/CoreFoundation.h>
+#import <DiskArbitration/DiskArbitration.h>
 #import <WebKit/WebKit.h>
 #import <objc/runtime.h>
 #include <IOKit/IOKitLib.h>
@@ -12,6 +13,7 @@
 #include <net/if_dl.h>
 #include <stdint.h>
 #include <string.h>
+#include <sys/mount.h>
 #include <sys/socket.h>
 #include <sys/sysctl.h>
 #include <unistd.h>
@@ -453,19 +455,24 @@ static NSString *menuBarDescription = @"OpenSurge";
 static NSString *menuBarTraffic = @"";
 
 static void applyMenuBarButtonLayout(NSStatusBarButton *button) {
-    BOOL hasTitle = button.title.length > 0;
+    BOOL hasTitle = menuBarTraffic.length > 0;
     button.imagePosition = hasTitle ? NSImageLeft : NSImageOnly;
-    if (hasTitle) {
-        button.font = [NSFont monospacedSystemFontOfSize:11 weight:NSFontWeightMedium];
+    // Full monospace so B/K/M/G/%/C are the same width as digits. Tabular-digit
+    // SF Pro still draws K narrower than B, which jumps the status item.
+    NSFont *font = [NSFont monospacedSystemFontOfSize:11 weight:NSFontWeightMedium];
+    button.font = font;
+    if (!hasTitle) {
+        button.title = @"";
+        return;
     }
+    button.attributedTitle = [[NSAttributedString alloc] initWithString:menuBarTraffic attributes:@{NSFontAttributeName: font}];
 }
 
 void setOpenSurgeMenuBarTraffic(const char *title) {
     NSString *next = title ? [NSString stringWithUTF8String:title] : @"";
-    if ([menuBarTraffic isEqualToString:next] && menuBarButton && [menuBarButton.title isEqualToString:next]) return;
+    if ([menuBarTraffic isEqualToString:next] && menuBarButton) return;
     menuBarTraffic = next;
     if (!menuBarButton) return;
-    menuBarButton.title = menuBarTraffic;
     applyMenuBarButtonLayout(menuBarButton);
 }
 
@@ -515,7 +522,6 @@ void configureOpenSurgeMenuBarIcon(void) {
                 button.alphaValue = [menuBarIndicator isEqualToString:@"connecting"] ? 0.75 :
                     [menuBarIndicator isEqualToString:@"stopped"] ? 0.55 :
                     [menuBarIndicator isEqualToString:@"unreachable"] ? 0.35 : 1.0;
-                if (menuBarTraffic.length) button.title = menuBarTraffic;
                 applyMenuBarButtonLayout(button);
                 button.toolTip = menuBarDescription;
                 [button setAccessibilityLabel:menuBarDescription];
@@ -614,6 +620,126 @@ int openSurgeHostMemory(double *percent) {
         return 1;
     }
     return openSurgeHostMemoryFromPages(percent);
+}
+
+static bool openSurgeSkipFS(const char *type) {
+    static const char *skip[] = {"autofs", "devfs", "fdesc", "nfs", "smbfs", "afpfs", "webdav", "fuse", "nullfs", "overlay", "cddafs", NULL};
+    if (type == NULL) return true;
+    for (int i = 0; skip[i] != NULL; i++) {
+        if (strcmp(type, skip[i]) == 0) return true;
+    }
+    return false;
+}
+
+static bool openSurgeCFBool(CFDictionaryRef desc, CFStringRef key, bool fallback) {
+    if (desc == NULL || key == NULL) return fallback;
+    CFBooleanRef value = CFDictionaryGetValue(desc, key);
+    if (value == NULL || CFGetTypeID(value) != CFBooleanGetTypeID()) return fallback;
+    return CFBooleanGetValue(value);
+}
+
+static bool openSurgeDiskInternal(DASessionRef session, const char *mntfrom, char *wholeOut, size_t wholeLen) {
+    if (session == NULL || mntfrom == NULL) return false;
+    if (strncmp(mntfrom, "/dev/", 5) != 0) return false;
+    const char *bsd = mntfrom + 5;
+    if (strncmp(bsd, "disk", 4) != 0) return false;
+    DADiskRef disk = DADiskCreateFromBSDName(kCFAllocatorDefault, session, bsd);
+    if (disk == NULL) return false;
+    DADiskRef whole = DADiskCopyWholeDisk(disk);
+    CFRelease(disk);
+    if (whole == NULL) return false;
+    const char *wholeBSD = DADiskGetBSDName(whole);
+    if (wholeBSD != NULL && wholeOut != NULL && wholeLen > 0) {
+        strlcpy(wholeOut, wholeBSD, wholeLen);
+    }
+    CFDictionaryRef desc = DADiskCopyDescription(whole);
+    CFRelease(whole);
+    if (desc == NULL) return false;
+    bool internal = openSurgeCFBool(desc, kDADiskDescriptionDeviceInternalKey, false);
+    bool removable = openSurgeCFBool(desc, kDADiskDescriptionMediaRemovableKey, false);
+    bool ejectable = openSurgeCFBool(desc, kDADiskDescriptionMediaEjectableKey, false);
+    CFStringRef protocol = CFDictionaryGetValue(desc, kDADiskDescriptionDeviceProtocolKey);
+    bool externalBus = false;
+    if (protocol != NULL && CFGetTypeID(protocol) == CFStringGetTypeID()) {
+        externalBus = CFStringCompare(protocol, CFSTR("USB"), 0) == kCFCompareEqualTo
+            || CFStringCompare(protocol, CFSTR("Secure Digital"), 0) == kCFCompareEqualTo
+            || CFStringCompare(protocol, CFSTR("FireWire"), 0) == kCFCompareEqualTo
+            || CFStringCompare(protocol, CFSTR("Disk Image"), 0) == kCFCompareEqualTo;
+    }
+    CFStringRef model = CFDictionaryGetValue(desc, kDADiskDescriptionDeviceModelKey);
+    bool image = model != NULL && CFGetTypeID(model) == CFStringGetTypeID()
+        && CFStringFind(model, CFSTR("Disk Image"), kCFCompareCaseInsensitive).location != kCFNotFound;
+    CFRelease(desc);
+    return internal && !removable && !ejectable && !externalBus && !image;
+}
+
+typedef struct {
+    char whole[32];
+    uint64_t total;
+    uint64_t used;
+} OpenSurgeDiskAcc;
+
+static int openSurgeDiskAccIndex(OpenSurgeDiskAcc *acc, int n, const char *whole) {
+    if (whole == NULL || whole[0] == 0) return -1;
+    for (int i = 0; i < n; i++) {
+        if (strcmp(acc[i].whole, whole) == 0) return i;
+    }
+    return -1;
+}
+
+int openSurgeHostDisk(double *percent) {
+    if (percent == NULL) return 0;
+    DASessionRef session = DASessionCreate(kCFAllocatorDefault);
+    OpenSurgeDiskAcc acc[8] = {{0}};
+    int accN = 0;
+    struct statfs *mnts = NULL;
+    int n = getmntinfo(&mnts, MNT_NOWAIT);
+    if (session != NULL && mnts != NULL) {
+        for (int i = 0; i < n; i++) {
+            if ((mnts[i].f_flags & MNT_LOCAL) == 0) continue;
+            if ((mnts[i].f_flags & MNT_SNAPSHOT) != 0) continue;
+            if ((mnts[i].f_flags & MNT_REMOVABLE) != 0) continue;
+            if (openSurgeSkipFS(mnts[i].f_fstypename)) continue;
+            if (mnts[i].f_blocks == 0) continue;
+            char whole[32] = {0};
+            if (!openSurgeDiskInternal(session, mnts[i].f_mntfromname, whole, sizeof whole)) continue;
+            uint64_t bsize = (uint64_t)mnts[i].f_bsize;
+            uint64_t blocks = (uint64_t)mnts[i].f_blocks * bsize;
+            uint64_t busy = ((uint64_t)mnts[i].f_blocks - (uint64_t)mnts[i].f_bfree) * bsize;
+            int idx = openSurgeDiskAccIndex(acc, accN, whole);
+            if (idx < 0) {
+                if (accN >= 8 || whole[0] == 0) continue;
+                idx = accN++;
+                strlcpy(acc[idx].whole, whole, sizeof acc[idx].whole);
+                acc[idx].total = blocks;
+                acc[idx].used = busy;
+                continue;
+            }
+            // Keep the largest volume of an APFS container so Preboot/VM do not replace Data.
+            if (blocks > acc[idx].total) {
+                acc[idx].total = blocks;
+                acc[idx].used = busy;
+            }
+        }
+    }
+    if (session != NULL) CFRelease(session);
+    uint64_t total = 0;
+    uint64_t used = 0;
+    for (int i = 0; i < accN; i++) {
+        total += acc[i].total;
+        used += acc[i].used;
+    }
+    if (total == 0) {
+        struct statfs root;
+        if (statfs("/", &root) != 0 || root.f_blocks == 0) return 0;
+        uint64_t bsize = (uint64_t)root.f_bsize;
+        total = (uint64_t)root.f_blocks * bsize;
+        used = ((uint64_t)root.f_blocks - (uint64_t)root.f_bfree) * bsize;
+    }
+    *percent = 100.0 * (double)used / (double)total;
+    if (*percent < 0) *percent = 0;
+    if (*percent > 100) *percent = 100;
+    return 1;
 }
 
 typedef struct CF_BRIDGED_TYPE(id) __IOHIDEventSystemClient *OpenSurgeHIDClient;

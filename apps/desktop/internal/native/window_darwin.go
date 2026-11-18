@@ -4,7 +4,7 @@ package native
 
 /*
 #cgo CFLAGS: -x objective-c -fobjc-arc
-#cgo LDFLAGS: -framework Cocoa -framework WebKit -framework IOKit
+#cgo LDFLAGS: -framework Cocoa -framework WebKit -framework IOKit -framework DiskArbitration
 #include <stdlib.h>
 #include <stdbool.h>
 void configureOpenSurgeWindow(void *window, bool rememberFrame, bool tray);
@@ -19,6 +19,7 @@ unsigned long long openSurgeLinkIbytes(void);
 int openSurgeHostCPU(unsigned long long *used, unsigned long long *total);
 int openSurgeCoreCPU(unsigned long long *used, unsigned long long *total, int capacity);
 int openSurgeHostMemory(double *percent);
+int openSurgeHostDisk(double *percent);
 int openSurgeCPUTempC(double *celsius);
 int openSurgeCoreTemps(double *out, int capacity);
 int openSurgeGroupTemps(double *power, double *gpu, double *performance);
@@ -152,6 +153,17 @@ func HostCPUTicks() (used, total uint64, ok bool) {
 func HostMemoryPercent() (float64, bool) {
 	var percent C.double
 	if C.openSurgeHostMemory(&percent) == 0 {
+		return 0, false
+	}
+	return float64(percent), true
+}
+
+// HostDiskPercent is occupancy of this Mac's internal disks only. External,
+// USB, and disk-image volumes are skipped; APFS volumes that share a container
+// are counted once.
+func HostDiskPercent() (float64, bool) {
+	var percent C.double
+	if C.openSurgeHostDisk(&percent) == 0 {
 		return 0, false
 	}
 	return float64(percent), true

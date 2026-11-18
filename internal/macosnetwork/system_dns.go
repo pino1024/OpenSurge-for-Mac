@@ -187,6 +187,23 @@ func writeAndVerifyDNS(ctx context.Context, service string, servers []string) er
 	if !slices.Equal(actual, servers) {
 		return fmt.Errorf("DNS readback differs after setting %s", service)
 	}
+	// Stop/start otherwise leaves macOS holding the previous answers: fake-IPs
+	// after stop, or public Google IPs after start, both bypass TUN/proxy.
+	if err := flushResolverCache(ctx); err != nil {
+		return err
+	}
+	return nil
+}
+
+var flushResolverCache = func(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if output, err := exec.CommandContext(ctx, "/usr/bin/dscacheutil", "-flushcache").CombinedOutput(); err != nil {
+		return fmt.Errorf("flush DNS cache: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	if output, err := exec.CommandContext(ctx, "/usr/bin/killall", "-HUP", "mDNSResponder").CombinedOutput(); err != nil {
+		return fmt.Errorf("reload mDNSResponder: %w: %s", err, strings.TrimSpace(string(output)))
+	}
 	return nil
 }
 

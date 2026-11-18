@@ -14,11 +14,11 @@ func observation(at time.Time) []byte {
 }
 
 func TestFormatDownloadRate(t *testing.T) {
-	pad := "\u2007"
+	pad := "\u00A0"
 	cases := map[int64]string{
-		0: pad + pad + "0B", 12: pad + "12B", 999: "999B", 1000: "1.0K", 1500: "1.5K",
-		9_949: "9.9K", 9_950: pad + "10K", 12_300: pad + "12K", 125_000: "125K",
-		999_500: "1.0M", 1_500_000: "1.5M", 12_000_000: pad + "12M",
+		0: pad + pad + "0B", 12: pad + "12B", 999: "999B", 1000: pad + pad + "1K", 1500: pad + pad + "2K",
+		9_449: pad + pad + "9K", 9_500: pad + "10K", 12_300: pad + "12K", 125_000: "125K",
+		999_500: pad + pad + "1M", 1_500_000: pad + pad + "2M", 12_000_000: pad + "12M",
 	}
 	for input, want := range cases {
 		got := FormatDownloadRate(input)
@@ -32,7 +32,7 @@ func TestFormatDownloadRate(t *testing.T) {
 }
 
 func TestFormatCPUPercentAndMenuBarStats(t *testing.T) {
-	pad := "\u2007"
+	pad := "\u00A0"
 	for input, want := range map[float64]string{
 		0: pad + pad + "0%", 8.2: pad + pad + "8%", 23.4: pad + "23%", 99.5: "100%", 100: "100%", -3: pad + pad + "0%", 140: "100%",
 	} {
@@ -53,24 +53,27 @@ func TestFormatCPUPercentAndMenuBarStats(t *testing.T) {
 	if got, want := FormatMemoryPercent(35.4), pad+"35%"; got != want {
 		t.Fatalf("FormatMemoryPercent=%q want %q", got, want)
 	}
+	if got, want := FormatDiskPercent(80.4), pad+"80%"; got != want {
+		t.Fatalf("FormatDiskPercent=%q want %q", got, want)
+	}
 	if got, want := FormatFanRPM(3500, true), "3500"; got != want {
 		t.Fatalf("FormatFanRPM=%q want %q", got, want)
 	}
 	if got, want := FormatFanRPM(0, false), pad+pad+pad+"-"; got != want {
 		t.Fatalf("missing fan=%q", got)
 	}
-	got := FormatMenuBarStats(12_300, 8.2, 35.4, 42.4, true, 3500, true, DefaultMenuBarShow())
-	want := pad + "12K" + pad + pad + pad + "8%" + pad + pad + "35%" + pad + pad + "42C" + pad + "3500"
+	got := FormatMenuBarStats(12_300, 8.2, 35.4, 80.4, 42.4, true, 3500, true, DefaultMenuBarShow())
+	want := pad + "12K" + pad + pad + pad + "8%" + pad + pad + "35%" + pad + pad + "80%" + pad + pad + "42C" + pad + "3500"
 	if got != want {
 		t.Fatalf("FormatMenuBarStats=%q want %q", got, want)
 	}
-	if n := len([]rune(got)); n != 24 {
+	if n := len([]rune(got)); n != 29 {
 		t.Fatalf("combined width %d", n)
 	}
-	if got := FormatMenuBarStats(12_300, 8.2, 35.4, 42.4, true, 0, false, MenuBarShow{Temperature: true}); got != pad+"42C" {
+	if got := FormatMenuBarStats(12_300, 8.2, 35.4, 80.4, 42.4, true, 0, false, MenuBarShow{Temperature: true}); got != pad+"42C" {
 		t.Fatalf("temp-only=%q", got)
 	}
-	if got := FormatMenuBarStats(12_300, 8.2, 35.4, 42.4, true, 0, false, MenuBarShow{}); got != "" {
+	if got := FormatMenuBarStats(12_300, 8.2, 35.4, 80.4, 42.4, true, 0, false, MenuBarShow{}); got != "" {
 		t.Fatalf("hidden=%q", got)
 	}
 	if p, ok := CPUPercent(10, 100, 25, 200); !ok || p != 15 {
@@ -102,7 +105,7 @@ func TestLocalDownloadUsesGatewayLocalRate(t *testing.T) {
 	m.SetChanged(func(snapshot Snapshot) { last = snapshot })
 	m.SetRunning(true)
 	m.refresh(context.Background())
-	if last.Failed || last.LocalDownload != 2500 || last.GatewayDownload != 4000 || FormatDownloadRate(last.LocalDownload) != "2.5K" {
+	if last.Failed || last.LocalDownload != 2500 || last.GatewayDownload != 4000 || FormatDownloadRate(last.LocalDownload) != "\u00A0\u00A03K" {
 		t.Fatalf("local download = %+v", last)
 	}
 }

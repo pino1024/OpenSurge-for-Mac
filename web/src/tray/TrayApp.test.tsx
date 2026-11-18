@@ -2,15 +2,15 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { TrayApp, TrayMenuApp, diagnosticSummary } from './TrayApp'
+import { TrayApp, TrayMenuApp, diagnosticSummary, bypassControl } from './TrayApp'
 import { resetFanConfig } from './fanConfig'
 import { desktopAction, copyText, isDesktop } from '../desktop'
-import { api } from '../api'
+import { api, waitForOperation } from '../api'
 import { activateLanguage, prepareLanguage } from '../i18n'
 import type { TraySnapshot } from './types'
 
 vi.mock('../desktop', () => ({ desktopAction: vi.fn(), copyText: vi.fn(), isDesktop: vi.fn() }))
-vi.mock('../api', () => ({ api: { setUIPreferences: vi.fn() } }))
+vi.mock('../api', () => ({ api: { setUIPreferences: vi.fn(), gateway: vi.fn(), setLocalRouting: vi.fn(), refreshLocalConnections: vi.fn(), proxyEnabled: vi.fn(), setProxyEnabled: vi.fn() }, waitForOperation: vi.fn() }))
 const fixture: TraySnapshot = { indicator: 'stopped', sequence: 1, can_quit: true, notebook: true, status: {
  schema_version: 1, revision: 'test', gateway: 'stopped', topology: 'same_lan', lan_ip: '192.0.2.10', dhcp: 'stopped', mihomo: 'stopped', tun: 'stopped', pf_anchor: 'unloaded', forwarding: 'disabled', ipv4_takeover: 'stopped', ipv6_takeover: 'disabled', client_count: 0, drift: false, doctor_healthy: false, recovery_required: false, warnings: [], sleep_prevention: { enabled: false, active: false }, ui_preferences: { schema_version: 1, language: 'en' },
 } }
@@ -19,7 +19,13 @@ beforeEach(async () => {
  await prepareLanguage('en'); activateLanguage('en')
  vi.mocked(isDesktop).mockReturnValue(false)
  vi.mocked(desktopAction).mockImplementation(async () => fixture)
- vi.mocked(api.setUIPreferences).mockImplementation(async value => ({ schema_version: 1, language: 'en', menu_bar: { download: true, cpu: true, memory: true, temperature: true, ...value.menu_bar } }))
+ vi.mocked(api.setUIPreferences).mockImplementation(async value => ({ schema_version: 1, language: 'en', menu_bar: { download: true, cpu: true, memory: true, disk: true, temperature: true, ...value.menu_bar } }))
+ vi.mocked(api.gateway).mockImplementation(async action => ({ id: `op-${action}`, kind: action, state: 'running' }))
+ vi.mocked(api.setLocalRouting).mockResolvedValue({ mode: 'rule', udp_behavior: 'rules', consistent: true, new_connections_only: true } as never)
+ vi.mocked(api.refreshLocalConnections).mockResolvedValue({ matched_connections: 0, closed_connections: 0 } as never)
+ vi.mocked(api.proxyEnabled).mockResolvedValue({ schema_version: 1, enabled: true, mode: 'rule', live: true })
+ vi.mocked(api.setProxyEnabled).mockImplementation(async enabled => ({ schema_version: 1, enabled, mode: enabled ? 'rule' : 'direct', live: true }))
+ vi.mocked(waitForOperation).mockImplementation(async id => ({ id, kind: id.replace('op-', ''), state: 'succeeded' }))
 })
 afterEach(() => { cleanup(); vi.clearAllMocks(); activateLanguage('zh-Hans'); localStorage.clear(); delete window.__opensurgeWindowVisible })
 
@@ -189,7 +195,7 @@ it('toggles menu bar meters from the panel switches', async () => {
  const cpu = screen.getByRole('switch', { name: 'CPU usage' }) as HTMLInputElement
  expect(cpu.checked).toBe(true)
  await userEvent.click(cpu)
- await waitFor(() => expect(api.setUIPreferences).toHaveBeenCalledWith({ menu_bar: { download: true, cpu: false, memory: true, temperature: true } }))
+ await waitFor(() => expect(api.setUIPreferences).toHaveBeenCalledWith({ menu_bar: { download: true, cpu: false, memory: true, disk: true, temperature: true } }))
  expect(desktopAction).toHaveBeenCalledWith('menubar-status', { refresh: true })
 })
 
@@ -215,6 +221,46 @@ it('hides lid-closed running on a desktop Mac', async () => {
  await openMenuMeters()
  expect(screen.queryByRole('switch', { name: 'Keep running with lid closed' })).toBeNull()
  expect(screen.getByRole('switch', { name: 'Fan speed' })).toBeTruthy()
+})
+
+it('starts bypass routing from the title-bar control', async () => {
+ render(<TrayApp />)
+ await userEvent.click(await screen.findByRole('button', { name: 'Start bypass routing' }))
+ await waitFor(() => expect(api.gateway).toHaveBeenCalledWith('start'))
+ expect(waitForOperation).toHaveBeenCalledWith('op-start')
+ expect(api.setLocalRouting).toHaveBeenCalledWith('rule')
+ expect(api.refreshLocalConnections).toHaveBeenCalled()
+ expect(desktopAction).toHaveBeenCalledWith('menubar-status', { refresh: true })
+})
+
+it('stops bypass routing from the title-bar control without a confirmation dialog', async () => {
+ vi.mocked(desktopAction).mockResolvedValue({ ...fixture, indicator: 'running', status: { ...fixture.status!, gateway: 'running' } })
+ const confirm = vi.spyOn(window, 'confirm')
+ render(<TrayApp />)
+ await userEvent.click(await screen.findByRole('button', { name: 'Stop bypass routing' }))
+ await waitFor(() => expect(api.gateway).toHaveBeenCalledWith('stop'))
+ expect(waitForOperation).toHaveBeenCalledWith('op-stop')
+ expect(api.setLocalRouting).not.toHaveBeenCalled()
+ expect(confirm).not.toHaveBeenCalled()
+})
+
+it('cleans leftover reboot state then starts bypass routing in one title-bar action', async () => {
+ vi.mocked(desktopAction).mockResolvedValue({ ...fixture, indicator: 'interrupted', status: { ...fixture.status!, gateway: 'stopped' } })
+ render(<TrayApp />)
+ expect(await screen.findByText(/Use Clean up & start in the title bar/)).toBeTruthy()
+ await userEvent.click(screen.getByRole('button', { name: 'Clean leftover runtime and start bypass routing' }))
+ await waitFor(() => expect(api.gateway).toHaveBeenCalledWith('start'))
+ expect(vi.mocked(api.gateway).mock.calls.map(([action]) => action)).toEqual(['stop', 'start'])
+ expect(vi.mocked(waitForOperation).mock.calls.map(([id]) => id)).toEqual(['op-stop', 'op-start'])
+ expect(api.setLocalRouting).toHaveBeenCalledWith('rule')
+})
+
+it('keeps DHCP takeover off the title-bar bypass control', async () => {
+ vi.mocked(desktopAction).mockResolvedValue({ ...fixture, indicator: 'stopped', status: { ...fixture.status!, topology: 'same_wifi_dhcp' } })
+ render(<TrayApp />)
+ expect((await screen.findByRole('button', { name: 'Start gateway' }) as HTMLButtonElement).disabled).toBe(true)
+ expect(bypassControl('interrupted', 'same_lan')).toEqual(expect.objectContaining({ enabled: true, action: 'cleanup-start' }))
+ expect(bypassControl('stopped', 'same_wifi_dhcp').enabled).toBe(false)
 })
 
 it('hides the fan speed and turns the curve off from the chart', async () => {

@@ -12,6 +12,10 @@ import (
 	"time"
 )
 
+// menuBarPad is a no-break space. AppKit trims ASCII spaces on status items,
+// and figure spaces are missing from SF Mono so they pick up a narrower font.
+const menuBarPad = "\u00A0"
+
 const maxGap = 15 * time.Second // Same validity window as the Control API sampler.
 
 type Point struct {
@@ -43,44 +47,35 @@ type Monitor struct {
 	wake       chan struct{}
 }
 
-// FormatDownloadRate is a fixed 4-character menubar label (no "/s") so the
-// status item does not change width as the rate ticks.
+// FormatDownloadRate is a fixed 4-character integer menubar label (no "/s",
+// no decimal) so the status item does not change width as the rate ticks.
 func FormatDownloadRate(bytesPerSecond int64) string {
 	if bytesPerSecond < 0 {
 		bytesPerSecond = 0
 	}
-	value, unit := float64(bytesPerSecond), byte('B')
+	n, unit := bytesPerSecond, byte('B')
 	switch {
 	case bytesPerSecond >= 1_000_000_000:
-		value, unit = float64(bytesPerSecond)/1_000_000_000, 'G'
+		n, unit = int64(math.Round(float64(bytesPerSecond)/1_000_000_000)), 'G'
 	case bytesPerSecond >= 1_000_000:
-		value, unit = float64(bytesPerSecond)/1_000_000, 'M'
+		n, unit = int64(math.Round(float64(bytesPerSecond)/1_000_000)), 'M'
 	case bytesPerSecond >= 1000:
-		value, unit = float64(bytesPerSecond)/1000, 'K'
+		n, unit = int64(math.Round(float64(bytesPerSecond)/1000)), 'K'
 	}
-	label := ""
-	switch {
-	case unit == 'B':
-		label = fmt.Sprintf("%3dB", bytesPerSecond)
-	case value < 9.95:
-		label = fmt.Sprintf("%3.1f%c", value, unit)
-	default:
-		rounded := math.Round(value)
-		if rounded >= 1000 {
-			switch unit {
-			case 'K':
-				label = "1.0M"
-			case 'M':
-				label = "1.0G"
-			default:
-				label = "1.0T"
-			}
-		} else {
-			label = fmt.Sprintf("%3.0f%c", rounded, unit)
+	if n >= 1000 {
+		switch unit {
+		case 'K':
+			n, unit = 1, 'M'
+		case 'M':
+			n, unit = 1, 'G'
+		case 'G':
+			n, unit = 1, 'T'
 		}
 	}
-	// Figure spaces keep leading pads; AppKit trims ASCII spaces on status items.
-	return strings.ReplaceAll(label, " ", "\u2007")
+	if unit != 'B' && n < 1 {
+		n = 1
+	}
+	return strings.ReplaceAll(fmt.Sprintf("%3d%c", n, unit), " ", menuBarPad)
 }
 
 // FormatCPUPercent is a fixed 4-character host CPU label (`  8%`, `100%`).
@@ -95,7 +90,7 @@ func FormatCPUPercent(percent float64) string {
 	if n > 100 {
 		n = 100
 	}
-	return strings.ReplaceAll(fmt.Sprintf("%3d%%", n), " ", "\u2007")
+	return strings.ReplaceAll(fmt.Sprintf("%3d%%", n), " ", menuBarPad)
 }
 
 // FormatMemoryPercent is the same 4-character percent width as CPU.
@@ -106,19 +101,19 @@ func FormatMemoryPercent(percent float64) string {
 // FormatFanRPM is a fixed 4-character fan speed (`1000`, `4900`).
 func FormatFanRPM(rpm float64, ok bool) string {
 	if !ok || math.IsNaN(rpm) || rpm < 0 {
-		return "\u2007\u2007\u2007-"
+		return menuBarPad + menuBarPad + menuBarPad + "-"
 	}
 	n := int(math.Round(rpm))
 	if n > 9999 {
 		n = 9999
 	}
-	return strings.ReplaceAll(fmt.Sprintf("%4d", n), " ", "\u2007")
+	return strings.ReplaceAll(fmt.Sprintf("%4d", n), " ", menuBarPad)
 }
 
 // FormatCPUTemp is a fixed 4-character CPU-core temperature (` 42C`, `100C`).
 func FormatCPUTemp(celsius float64, ok bool) string {
 	if !ok || math.IsNaN(celsius) {
-		return "\u2007--C"
+		return menuBarPad + "--C"
 	}
 	n := int(math.Round(celsius))
 	if n < 0 {
@@ -127,7 +122,7 @@ func FormatCPUTemp(celsius float64, ok bool) string {
 	if n > 999 {
 		n = 999
 	}
-	return strings.ReplaceAll(fmt.Sprintf("%3dC", n), " ", "\u2007")
+	return strings.ReplaceAll(fmt.Sprintf("%3dC", n), " ", menuBarPad)
 }
 
 // MenuBarShow selects which fixed-width meters appear beside the icon.
@@ -135,16 +130,22 @@ type MenuBarShow struct {
 	Download    bool
 	CPU         bool
 	Memory      bool
+	Disk        bool
 	Temperature bool
 	Fan         bool
 }
 
 func DefaultMenuBarShow() MenuBarShow {
-	return MenuBarShow{Download: true, CPU: true, Memory: true, Temperature: true, Fan: true}
+	return MenuBarShow{Download: true, CPU: true, Memory: true, Disk: true, Temperature: true, Fan: true}
 }
 
-// FormatMenuBarStats is the combined menubar label: rate, CPU, memory, core temp, fan RPM.
-func FormatMenuBarStats(bytesPerSecond int64, cpuPercent, memPercent, tempC float64, tempOK bool, fanRPM float64, fanOK bool, show MenuBarShow) string {
+// FormatDiskPercent is the same 4-character percent width as CPU and memory.
+func FormatDiskPercent(percent float64) string {
+	return FormatCPUPercent(percent)
+}
+
+// FormatMenuBarStats is the combined menubar label: rate, CPU, memory, disk, core temp, fan RPM.
+func FormatMenuBarStats(bytesPerSecond int64, cpuPercent, memPercent, diskPercent, tempC float64, tempOK bool, fanRPM float64, fanOK bool, show MenuBarShow) string {
 	var parts []string
 	if show.Download {
 		parts = append(parts, FormatDownloadRate(bytesPerSecond))
@@ -155,13 +156,16 @@ func FormatMenuBarStats(bytesPerSecond int64, cpuPercent, memPercent, tempC floa
 	if show.Memory {
 		parts = append(parts, FormatMemoryPercent(memPercent))
 	}
+	if show.Disk {
+		parts = append(parts, FormatDiskPercent(diskPercent))
+	}
 	if show.Temperature {
 		parts = append(parts, FormatCPUTemp(tempC, tempOK))
 	}
 	if show.Fan {
 		parts = append(parts, FormatFanRPM(fanRPM, fanOK))
 	}
-	return strings.Join(parts, "\u2007")
+	return strings.Join(parts, menuBarPad)
 }
 
 // CPUPercent is host occupancy from two HOST_CPU_LOAD_INFO samples.

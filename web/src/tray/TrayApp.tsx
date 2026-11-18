@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { copyText, desktopAction, isDesktop } from '../desktop'
 import { activateLanguage, cacheRequestedLanguage, initialRequestedLanguage, isRequestedLanguage, prepareLanguage, t } from '../i18n'
 import { useTheme } from '../hooks/useTheme'
-import { api } from '../api'
+import { api, waitForOperation } from '../api'
 import { gatewayIsTransitioning, gatewayStatusDetail, gatewayStatusLabel, recoveryLabel, statusLabel, takeoverLabel } from '../status'
 import type { MenuBarIndicators, SleepPreventionStatus } from '../types'
 import { isWindowVisible, watchVisibleRefresh } from '../visibility'
@@ -15,13 +15,14 @@ import { saveTrayLayout, trayLayout } from './trayLayout'
 import './tray.css'
 
 const initial: TraySnapshot = { status: null, indicator: 'connecting', sequence: 0, can_quit: false }
-const defaultMenuBarMetrics: MenuBarIndicators = { download: true, cpu: true, memory: true, temperature: true }
+const defaultMenuBarMetrics: MenuBarIndicators = { download: true, cpu: true, memory: true, disk: true, temperature: true }
 
 function menuBarMetrics(status: MenuBarStatus | null): MenuBarIndicators {
  return {
   download: status?.ui_preferences.menu_bar?.download ?? defaultMenuBarMetrics.download,
   cpu: status?.ui_preferences.menu_bar?.cpu ?? defaultMenuBarMetrics.cpu,
   memory: status?.ui_preferences.menu_bar?.memory ?? defaultMenuBarMetrics.memory,
+  disk: status?.ui_preferences.menu_bar?.disk ?? defaultMenuBarMetrics.disk,
   temperature: status?.ui_preferences.menu_bar?.temperature ?? defaultMenuBarMetrics.temperature,
  }
 }
@@ -29,6 +30,11 @@ function menuBarMetrics(status: MenuBarStatus | null): MenuBarIndicators {
 export function diagnosticSummary(status: MenuBarStatus | null): string {
  if (!status) return 'OpenSurge Control API: unreachable'
  return ['OpenSurge for Mac', `Gateway: ${status.gateway}`, `Topology: ${status.topology}`, `LAN IP: ${status.lan_ip}`, `DHCP/DNS: ${status.dhcp}`, `mihomo: ${status.mihomo}`, `TUN: ${status.tun}${status.tun_interface ? ` [${status.tun_interface}]` : ''}`, `PF: ${status.pf_anchor}`, `Forwarding: ${status.forwarding}`, `IPv4 takeover: ${status.ipv4_takeover}`, `IPv6 takeover: ${status.ipv6_takeover}`, `Clients: ${status.devices_error ? `${status.client_count} (incomplete: ${status.devices_error})` : status.client_count}`, `Drift: ${status.drift}`, `Recovery: ${status.recovery_required ? status.recovery_stage ?? 'required' : 'none'}`, `Error code: ${status.error_code ?? 'none'}`, `Lid-closed sleep prevention: ${status.sleep_prevention.active ? 'active' : 'off'}`].join('\n')
+}
+
+async function restoreBypassRouting() {
+ await api.setLocalRouting('rule')
+ await api.refreshLocalConnections().catch(() => {})
 }
 
 export function TrayMenuApp() { return <TrayApp menuOnly /> }
@@ -71,6 +77,7 @@ export function TrayApp({ menuOnly = false }: { menuOnly?: boolean } = {}) {
  const metricsBusy = useRef(false)
  const [refreshing, setRefreshing] = useState(false)
  const [serviceBusy, setServiceBusy] = useState(false)
+ const [gatewayBusy, setGatewayBusy] = useState(false)
  const [browserBusy, setBrowserBusy] = useState(false)
  const [browserError, setBrowserError] = useState('')
  const browserPending = useRef(false)
@@ -143,12 +150,35 @@ export function TrayApp({ menuOnly = false }: { menuOnly?: boolean } = {}) {
     download: saved.menu_bar?.download ?? next.download,
     cpu: saved.menu_bar?.cpu ?? next.cpu,
     memory: saved.menu_bar?.memory ?? next.memory,
+    disk: saved.menu_bar?.disk ?? next.disk,
     temperature: saved.menu_bar?.temperature ?? next.temperature,
    })
    await refresh(true)
   })
   setMetricsOverride(null)
   metricsBusy.current = false
+ }
+ const toggleBypass = async () => {
+  if (!status || gatewayBusy) return
+  const control = bypassControl(snapshot.indicator, status.topology)
+  if (!control.enabled) return
+  setGatewayBusy(true)
+  setError('')
+  try {
+   if (control.action === 'cleanup-start') {
+    await waitForOperation((await api.gateway('stop')).id)
+    await waitForOperation((await api.gateway('start')).id)
+    await restoreBypassRouting()
+   } else if (control.action === 'start' || control.action === 'stop') {
+    await waitForOperation((await api.gateway(control.action)).id)
+    if (control.action === 'start') await restoreBypassRouting()
+   }
+   await refresh(true)
+  } catch (cause) {
+   if (active.current) setError(cause instanceof Error ? cause.message : String(cause))
+  } finally {
+   if (active.current) setGatewayBusy(false)
+  }
  }
  const changeSleep = async (enabled: boolean) => {
   if (sleepPending.current) return
@@ -175,6 +205,7 @@ export function TrayApp({ menuOnly = false }: { menuOnly?: boolean } = {}) {
   ['DHCP / DNS', statusLabel(status.dhcp)], ['mihomo', status.mihomo.startsWith('running') ? `${statusLabel('running')}${status.mihomo.slice(7)}` : statusLabel(status.mihomo)], ['TUN', `${takeoverLabel(status.tun)}${status.tun_interface ? ` · ${status.tun_interface}` : ''}`],
   ['PF', t(status.pf_anchor === 'loaded' ? '已加载' : '未加载')], [t('IPv4 接管'), takeoverLabel(status.ipv4_takeover)], [t('IPv6 接管'), takeoverLabel(status.ipv6_takeover)],
  ] : []
+ const bypass = bypassControl(snapshot.indicator, status?.topology)
  const menu = <div className="tray-more-panel">
   <div className="tray-more-content">
    <button className="tray-browser" disabled={browserBusy} onClick={() => void openBrowser()}>{t(browserBusy ? '正在打开浏览器…' : '在浏览器中打开')}</button>
@@ -193,16 +224,20 @@ export function TrayApp({ menuOnly = false }: { menuOnly?: boolean } = {}) {
  return <main className="tray-app" ref={panel} tabIndex={-1}>
   <header className="tray-header">
    <img src="/opensurge-icon.png" alt="" /><h1>OpenSurge</h1>
+   <div className="tray-header-actions">
+   {status && <button type="button" className="tray-bypass" disabled={!bypass.enabled || gatewayBusy} aria-label={t(bypass.label)} title={t(bypass.title)} onClick={() => void toggleBypass()}>{t(gatewayBusy ? bypass.busy : bypass.text)}</button>}
    <span className={`tray-indicator ${snapshot.indicator}`} title={detail || displayLabel}><span className={`tray-dot ${transitioning ? 'transition' : snapshot.indicator}`} />{displayLabel}</span>
    {nativeMenu ? <button className="tray-more-trigger" aria-label={t('更多操作')} title={t('更多操作')} aria-haspopup="dialog" aria-expanded={nativeMenuOpen} onClick={() => void run(() => desktopAction('toggle-tray-menu'))}>···</button> : <details className="tray-more" ref={more} onKeyDown={event => { if (event.key === 'Escape' && more.current?.open) { more.current.open = false; event.stopPropagation(); more.current.querySelector('summary')?.focus() } }}>
     <summary aria-label={t('更多操作')} title={t('更多操作')}>···</summary>
     {menu}
    </details>}
+   </div>
   </header>
   {status && <p className="tray-subtitle"><span>{t(topology)}</span><span aria-hidden="true"> · </span><span>{status.lan_ip}</span></p>}
   <div className="tray-content">
    {snapshot.indicator === 'recovery' && <section className="tray-notice warning" role="alert"><strong>{t('网络恢复尚未完成')}</strong><p>{recoveryLabel(status?.recovery_stage ?? '')}</p><button onClick={() => show('network')}>{t('继续恢复')}</button></section>}
-   {['degraded', 'interrupted'].includes(snapshot.indicator) && <section className="tray-notice warning" role="alert"><strong>{displayLabel}</strong><p>{detail || t('请在网络设置中查看异常原因。')}</p><button onClick={() => show('network')}>{t('查看网络设置')}</button></section>}
+   {snapshot.indicator === 'interrupted' && <section className="tray-notice warning" role="alert"><strong>{displayLabel}</strong><p>{t(status?.topology === 'same_wifi_dhcp' ? '请在网络设置中安全清理旧状态，再继续 DHCP 接管流程。' : '点标题栏“清理并开启”会先清理重启遗留状态，再启动旁路由。')}</p>{status?.topology === 'same_wifi_dhcp' ? <button onClick={() => show('network')}>{t('查看网络设置')}</button> : <button disabled={!bypass.enabled || gatewayBusy} onClick={() => void toggleBypass()}>{t(gatewayBusy ? '正在清理重启遗留状态…' : '清理并开启')}</button>}</section>}
+   {snapshot.indicator === 'degraded' && <section className="tray-notice warning" role="alert"><strong>{displayLabel}</strong><p>{detail || t('请在网络设置中查看异常原因。')}</p><button onClick={() => show('network')}>{t('查看网络设置')}</button></section>}
    {(transitioning || snapshot.indicator === 'unknown') && <section className="tray-notice" role="status"><strong>{displayLabel}</strong>{detail && <p>{detail}</p>}</section>}
    {!status && <section className="tray-notice" role="status"><p>{t(snapshot.indicator === 'connecting' ? '正在连接后台服务…' : '状态暂不可用。后台连接恢复后会自动更新。')}</p>{snapshot.service_actions && <button disabled={serviceBusy} onClick={() => void serviceAction('reconnect')}>{t('重新连接后台服务')}</button>}</section>}
    {status?.drift && !transitioning && <p className="tray-inline-warning">{t(status.gateway === 'stopped' ? '配置将在下次启动时应用' : '有配置待应用，当前仍使用原配置')}</p>}
@@ -221,8 +256,8 @@ export function TrayApp({ menuOnly = false }: { menuOnly?: boolean } = {}) {
    <section className={`tray-preferences ${preferencesOpen ? 'expanded' : ''}`}>
     <button type="button" className="tray-network-toggle" aria-expanded={preferencesOpen} aria-controls="tray-menu-metrics" onClick={togglePreferences}><span>{t('菜单栏指标')}</span><span className="tray-caption">{t(preferencesOpen ? '收起详情' : '查看详情')} <svg className="tray-disclosure" viewBox="0 0 12 12" aria-hidden="true"><path d="m4 2 4 4-4 4" /></svg></span></button>
     <div className="tray-network-reveal" id="tray-menu-metrics" aria-hidden={!preferencesOpen} inert={!preferencesOpen}><div className="tray-network-inner">
-    {(['download', 'cpu', 'memory', 'temperature'] as const).map(key => {
-     const label = key === 'download' ? t('下行速率') : key === 'cpu' ? t('CPU 占用') : key === 'memory' ? t('内存占用') : t('CPU 温度')
+    {(['download', 'cpu', 'memory', 'disk', 'temperature'] as const).map(key => {
+     const label = key === 'download' ? t('下行速率') : key === 'cpu' ? t('CPU 占用') : key === 'memory' ? t('内存占用') : key === 'disk' ? t('磁盘占用') : t('CPU 温度')
      const metrics = metricsOverride ?? menuBarMetrics(status)
      return <label key={key}><span>{label}</span><input type="checkbox" role="switch" aria-label={label} checked={metrics[key]} disabled={!status} onChange={event => void changeMetric(key, event.target.checked)} /></label>
     })}
@@ -238,4 +273,24 @@ export function TrayApp({ menuOnly = false }: { menuOnly?: boolean } = {}) {
   </div>
   <footer className="tray-footer"><button className="primary" onClick={() => show('dashboard')}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M7 3H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2V9M9 2h5v5M7 9l7-7" /></svg>{t('打开 OpenSurge 面板')}</button></footer>
  </main>
+}
+
+type BypassAction = 'start' | 'stop' | 'cleanup-start'
+
+export function bypassControl(indicator: string, topology?: string): { enabled: boolean; action: BypassAction; text: string; busy: string; label: string; title: string } {
+ const bypass = topology === 'same_lan'
+ const dhcp = topology === 'same_wifi_dhcp'
+ const interrupted = indicator === 'interrupted'
+ const on = indicator === 'running' || indicator === 'degraded'
+ const action: BypassAction = interrupted ? 'cleanup-start' : on ? 'stop' : 'start'
+ const enabled = Boolean(topology) && !dhcp && !gatewayIsTransitioning(indicator) && !['connecting', 'unreachable', 'unknown', 'recovery'].includes(indicator)
+ const text = interrupted ? '清理并开启' : on ? '关闭' : '开启'
+ const busy = interrupted ? '正在清理重启遗留状态…' : on ? '正在关闭…' : '正在开启…'
+ const label = interrupted
+  ? (bypass ? '清理重启遗留状态并开启旁路由' : '清理重启遗留状态并开启网关')
+  : on
+   ? (bypass ? '关闭旁路由' : '关闭网关')
+   : (bypass ? '开启旁路由' : '开启网关')
+ const title = dhcp ? '局域网 DHCP 接管请在网络设置中开关。' : interrupted ? '先清理重启遗留的旧运行状态，再启动旁路由。' : label
+ return { enabled, action, text, busy, label, title }
 }

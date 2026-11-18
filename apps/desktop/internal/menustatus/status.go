@@ -47,6 +47,7 @@ type Status struct {
 			Download    bool `json:"download"`
 			CPU         bool `json:"cpu"`
 			Memory      bool `json:"memory"`
+			Disk        bool `json:"disk"`
 			Temperature bool `json:"temperature"`
 		} `json:"menu_bar,omitempty"`
 	} `json:"ui_preferences"`

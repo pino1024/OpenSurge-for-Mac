@@ -76,6 +76,9 @@ type Server struct {
 	fetchProxyHealth      func(context.Context, config.Config) (mihomo.ProxyHealthSnapshot, error)
 	fetchLocalRouting     func(context.Context, config.Config) (mihomo.LocalRoutingSnapshot, error)
 	setLocalRouting       func(context.Context, config.Config, string, string) (mihomo.LocalRoutingSnapshot, error)
+	fetchTrafficMode      func(context.Context, config.Config) (string, error)
+	patchTrafficMode      func(context.Context, config.Config, string) error
+	closeAllConnections   func(context.Context, config.Config) error
 	measureProxyDelay     func(context.Context, config.Config, string, string, time.Duration) mihomo.ProxyDelayResult
 	probeConnectivity     func(context.Context, config.Config, ConnectivityTarget) ConnectivityResult
 	trafficSampler        *trafficRateSampler
@@ -239,6 +242,9 @@ func New(options Options) (*Server, error) {
 		fetchProxyHealth:      mihomo.FetchProxyHealth,
 		fetchLocalRouting:     mihomo.FetchLocalRouting,
 		setLocalRouting:       mihomo.SetLocalRouting,
+		fetchTrafficMode:      mihomo.FetchTrafficMode,
+		patchTrafficMode:      mihomo.PatchTrafficMode,
+		closeAllConnections:   mihomo.CloseAllConnections,
 		measureProxyDelay:     mihomo.MeasureProxyDelay,
 		probeConnectivity:     probeConnectivityTarget,
 		trafficSampler:        newTrafficRateSampler(),
@@ -358,6 +364,8 @@ func (s *Server) routes(auth func(http.Handler) http.Handler, local bool) http.H
 	mux.Handle("GET /api/v1/local-routing", auth(http.HandlerFunc(s.handleLocalRouting)))
 	mux.Handle("POST /api/v1/local-routing", auth(http.HandlerFunc(s.handleLocalRouting)))
 	mux.Handle("POST /api/v1/local-routing/connections/refresh", auth(http.HandlerFunc(s.handleLocalConnectionRefresh)))
+	mux.Handle("GET /api/v1/proxy-enabled", auth(http.HandlerFunc(s.handleProxyEnabled)))
+	mux.Handle("POST /api/v1/proxy-enabled", auth(http.HandlerFunc(s.handleProxyEnabled)))
 	mux.Handle("GET /api/v1/proxy-health", auth(http.HandlerFunc(s.handleProxyHealth)))
 	mux.Handle("POST /api/v1/proxy-health/tests", auth(http.HandlerFunc(s.handleProxyHealthTests)))
 	mux.Handle("GET /api/v1/connectivity", auth(http.HandlerFunc(s.handleConnectivity)))
@@ -775,6 +783,7 @@ func (s *Server) handleUIPreferences(w http.ResponseWriter, r *http.Request) {
 			Download    *bool `json:"download"`
 			CPU         *bool `json:"cpu"`
 			Memory      *bool `json:"memory"`
+			Disk        *bool `json:"disk"`
 			Temperature *bool `json:"temperature"`
 		} `json:"menu_bar"`
 	}
@@ -803,6 +812,9 @@ func (s *Server) handleUIPreferences(w http.ResponseWriter, r *http.Request) {
 		}
 		if patch.MenuBar.Memory != nil {
 			preferences.MenuBar.Memory = *patch.MenuBar.Memory
+		}
+		if patch.MenuBar.Disk != nil {
+			preferences.MenuBar.Disk = *patch.MenuBar.Disk
 		}
 		if patch.MenuBar.Temperature != nil {
 			preferences.MenuBar.Temperature = *patch.MenuBar.Temperature
@@ -1044,6 +1056,9 @@ func (s *Server) runOperationLocked(op Operation, topology string, recoveryBefor
 		}
 	} else {
 		op.State = "succeeded"
+		if op.Kind == "start" || op.Kind == "reload" || op.Kind == "restart-mihomo" {
+			s.applyStoredProxyMode(ctx)
+		}
 		if topology == config.GatewayModeSameWiFiDHCP && (op.Kind == "start" || op.Kind == "stop") {
 			recovery, _ := s.store.Recovery()
 			recovery.Topology = topology

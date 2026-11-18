@@ -73,6 +73,73 @@ func TestFetchTUNRuntimeState(t *testing.T) {
 	}
 }
 
+func TestFetchAndPatchTrafficMode(t *testing.T) {
+	cfg := config.Default()
+	cfg.Mihomo.APIAddr = "127.0.0.1:9090"
+	cfg.Mihomo.Secret = "test-secret"
+	var patched string
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if got := req.Header.Get("Authorization"); got != "Bearer test-secret" {
+			t.Fatalf("Authorization = %q", got)
+		}
+		switch {
+		case req.Method == http.MethodGet && req.URL.Path == "/configs":
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Status:     "200 OK",
+				Body:       io.NopCloser(strings.NewReader(`{"mode":"Direct","tun":{"enable":true}}`)),
+				Header:     make(http.Header),
+			}, nil
+		case req.Method == http.MethodPatch && req.URL.Path == "/configs":
+			if got := req.Header.Get("Content-Type"); got != "application/json" {
+				t.Fatalf("Content-Type = %q", got)
+			}
+			var body map[string]string
+			if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			patched = body["mode"]
+			return &http.Response{StatusCode: http.StatusNoContent, Status: "204 No Content", Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+		default:
+			t.Fatalf("unexpected request %s %s", req.Method, req.URL.String())
+			return nil, nil
+		}
+	})}
+
+	mode, err := fetchTrafficModeWithClient(context.Background(), cfg, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode != TrafficModeDirect || ProxyEnabledFromTrafficMode(mode) {
+		t.Fatalf("mode = %q", mode)
+	}
+	if err := patchTrafficModeWithClient(context.Background(), cfg, client, TrafficModeDirect); err != nil {
+		t.Fatal(err)
+	}
+	if patched != TrafficModeDirect {
+		t.Fatalf("patched = %q", patched)
+	}
+}
+
+func TestCloseAllConnections(t *testing.T) {
+	cfg := config.Default()
+	cfg.Mihomo.APIAddr = "127.0.0.1:9090"
+	called := false
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Method != http.MethodDelete || req.URL.Path != "/connections" {
+			t.Fatalf("unexpected request %s %s", req.Method, req.URL.String())
+		}
+		called = true
+		return &http.Response{StatusCode: http.StatusNoContent, Status: "204 No Content", Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+	})}
+	if err := closeAllConnectionsWithClient(context.Background(), cfg, client); err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("expected DELETE /connections")
+	}
+}
+
 func TestFetchTUNRuntimeStateRejectsMissingState(t *testing.T) {
 	cfg := config.Default()
 	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {

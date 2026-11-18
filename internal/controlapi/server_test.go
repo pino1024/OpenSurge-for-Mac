@@ -2780,7 +2780,17 @@ func newReadyMihomoTestServer(t *testing.T) *httptest.Server {
 		case "/version":
 			_, _ = w.Write([]byte(`{"version":"test","meta":true}`))
 		case "/configs":
-			_, _ = w.Write([]byte(`{"tun":{"enable":true,"device":"utun-test","inet4-address":["198.18.0.1/30"]}}`))
+			if r.Method == http.MethodPatch {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			_, _ = w.Write([]byte(`{"mode":"rule","tun":{"enable":true,"device":"utun-test","inet4-address":["198.18.0.1/30"]}}`))
+		case "/connections":
+			if r.Method == http.MethodDelete {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			_, _ = w.Write([]byte(`{"connections":[]}`))
 		case "/proxies", "/providers/proxies", "/providers/rules":
 			_, _ = w.Write([]byte(`{"proxies":{},"providers":{}}`))
 		default:

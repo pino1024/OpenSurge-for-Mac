@@ -24,8 +24,9 @@ type dnsFixture struct {
 func mockDNS(t *testing.T, servers []string) *dnsFixture {
 	t.Helper()
 	f := &dnsFixture{servers: slices.Clone(servers), id: "01234567-89AB-CDEF-0123-456789ABCDEF", name: "Wi-Fi", iface: "en0"}
-	oldRun, oldSC := runCommand, runSCQuery
-	t.Cleanup(func() { runCommand, runSCQuery = oldRun, oldSC })
+	oldRun, oldSC, oldFlush := runCommand, runSCQuery, flushResolverCache
+	t.Cleanup(func() { runCommand, runSCQuery, flushResolverCache = oldRun, oldSC, oldFlush })
+	flushResolverCache = func(context.Context) error { return nil }
 	runCommand = func(_ context.Context, _ string, args ...string) (string, error) {
 		switch args[0] {
 		case "-listnetworkserviceorder":
@@ -98,6 +99,30 @@ func TestSystemDNSRestoresAutomaticAndExplicitSettings(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSystemDNSFlushesResolverCacheAfterEnableAndRestore(t *testing.T) {
+	f := mockDNS(t, []string{"192.168.1.1"})
+	var flushed int
+	flushResolverCache = func(context.Context) error {
+		flushed++
+		return nil
+	}
+	snapshot, err := (SystemDNS{}).Prepare(t.Context(), "en0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot.Owned = true
+	if err := (SystemDNS{}).Enable(t.Context(), snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (SystemDNS{}).Restore(t.Context(), snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if flushed != 2 {
+		t.Fatalf("resolver cache flushed %d times, want enable and restore", flushed)
+	}
+	_ = f
 }
 
 func TestSystemDNSUsesBackupDespiteInterveningChanges(t *testing.T) {

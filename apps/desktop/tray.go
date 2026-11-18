@@ -22,6 +22,8 @@ type hostMeterSample struct {
 	CPUOK          bool      `json:"cpu_ok"`
 	Memory         float64   `json:"memory"`
 	MemoryOK       bool      `json:"memory_ok"`
+	Disk           float64   `json:"disk"`
+	DiskOK         bool      `json:"disk_ok"`
 	Temperature    float64   `json:"temperature"`
 	TempOK         bool      `json:"temperature_ok"`
 	FanRPM         float64   `json:"fan_rpm"`
@@ -53,13 +55,14 @@ func readFanControl() (fan.Status, bool) {
 	return fan.ReadStatus(path)
 }
 
-func (h *desktopHost) recordHostMeters(cpu, memory, temp, fan, fanMin, fanMax float64, cpuOK, memoryOK, tempOK, fanOK, fanVisible bool, cores, coreTemps []float64, powerTemp, gpuTemp, perfTemp float64) {
+func (h *desktopHost) recordHostMeters(cpu, memory, disk, temp, fan, fanMin, fanMax float64, cpuOK, memoryOK, diskOK, tempOK, fanOK, fanVisible bool, cores, coreTemps []float64, powerTemp, gpuTemp, perfTemp float64) {
 	control, controlOK := readFanControl()
 	h.meters.mu.Lock()
 	defer h.meters.mu.Unlock()
 	sample := &h.meters.sample
 	sample.CPU, sample.CPUOK = cpu, cpuOK
 	sample.Memory, sample.MemoryOK = memory, memoryOK
+	sample.Disk, sample.DiskOK = disk, diskOK
 	sample.Temperature, sample.TempOK = temp, tempOK
 	sample.FanRPM, sample.FanOK, sample.FanVisible = fan, fanOK, fanVisible
 	if fanMax > fanMin && fanMin >= 0 {
@@ -131,8 +134,8 @@ func (h *desktopHost) runMenuBarTraffic(ctx context.Context) {
 	var previous uint64
 	var sampledAt time.Time
 	var prevCPUUsed, prevCPUTotal uint64
-	var cpuPercent, memPercent float64
-	var memOK bool
+	var cpuPercent, memPercent, diskPercent float64
+	var memOK, diskOK bool
 	var prevCoreUsed, prevCoreTotal []uint64
 	var corePercents []float64
 	ticker := time.NewTicker(time.Second)
@@ -158,6 +161,10 @@ func (h *desktopHost) runMenuBarTraffic(ctx context.Context) {
 				}
 				if next, ok := native.HostMemoryPercent(); ok {
 					memPercent = next
+				}
+				if next, ok := native.HostDiskPercent(); ok {
+					diskPercent = next
+					diskOK = true
 				}
 				continue
 			}
@@ -195,6 +202,10 @@ func (h *desktopHost) runMenuBarTraffic(ctx context.Context) {
 				memPercent = next
 				memOK = true
 			}
+			if next, ok := native.HostDiskPercent(); ok {
+				diskPercent = next
+				diskOK = true
+			}
 			fanC, fanTempOK, fanRPM, fanOK, fanMin, fanMax := native.FanSample()
 			var tempC float64
 			var tempOK bool
@@ -219,8 +230,8 @@ func (h *desktopHost) runMenuBarTraffic(ctx context.Context) {
 			if perfTemp < 0 {
 				perfTemp = 0
 			}
-			h.recordHostMeters(cpuPercent, memPercent, tempC, fanRPM, fanMin, fanMax, percentOK, memOK, tempOK, fanOK, fanVisible, cores, native.CoreTemps(), powerTemp, gpuTemp, perfTemp)
-			native.SetMenuBarTraffic(trayactivity.FormatMenuBarStats(trayactivity.MacDownloadRate(link, h.activity.Snapshot()), cpuPercent, memPercent, tempC, tempOK, fanRPM, fanOK, show))
+			h.recordHostMeters(cpuPercent, memPercent, diskPercent, tempC, fanRPM, fanMin, fanMax, percentOK, memOK, diskOK, tempOK, fanOK, fanVisible, cores, native.CoreTemps(), powerTemp, gpuTemp, perfTemp)
+			native.SetMenuBarTraffic(trayactivity.FormatMenuBarStats(trayactivity.MacDownloadRate(link, h.activity.Snapshot()), cpuPercent, memPercent, diskPercent, tempC, tempOK, fanRPM, fanOK, show))
 		}
 	}
 }
@@ -277,6 +288,7 @@ func (h *desktopHost) menuStatusChanged(snapshot menustatus.Snapshot) {
 				Download:    status.UIPreferences.MenuBar.Download,
 				CPU:         status.UIPreferences.MenuBar.CPU,
 				Memory:      status.UIPreferences.MenuBar.Memory,
+				Disk:        status.UIPreferences.MenuBar.Disk,
 				Temperature: status.UIPreferences.MenuBar.Temperature,
 				Fan:         true,
 			}

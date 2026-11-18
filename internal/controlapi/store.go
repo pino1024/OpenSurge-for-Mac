@@ -55,11 +55,40 @@ func (s *Store) Token() (string, error) {
 }
 
 func defaultMenuBarIndicators() MenuBarIndicators {
-	return MenuBarIndicators{Download: true, CPU: true, Memory: true, Temperature: true}
+	return MenuBarIndicators{Download: true, CPU: true, Memory: true, Disk: true, Temperature: true}
 }
 
 func defaultUIPreferences() UIPreferences {
 	return UIPreferences{SchemaVersion: SchemaVersion, Language: UILanguageSystem, MenuBar: defaultMenuBarIndicators()}
+}
+
+type proxyEnabledState struct {
+	SchemaVersion int  `json:"schema_version"`
+	Enabled       bool `json:"enabled"`
+}
+
+func (s *Store) ProxyEnabled() (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var state proxyEnabledState
+	err := readJSON(filepath.Join(s.dir, "proxy-enabled.json"), &state)
+	if errors.Is(err, os.ErrNotExist) {
+		return true, nil
+	}
+	if err != nil {
+		return true, err
+	}
+	return state.Enabled, nil
+}
+
+func (s *Store) SaveProxyEnabled(enabled bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	data, err := json.MarshalIndent(proxyEnabledState{SchemaVersion: SchemaVersion, Enabled: enabled}, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeAtomic(filepath.Join(s.dir, "proxy-enabled.json"), append(data, '\n'), 0o600)
 }
 
 func validUILanguage(language string) bool {

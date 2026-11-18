@@ -1,5 +1,5 @@
 import { operationID } from './operationID'
-import type { CustomDNSDocument, CustomDNSDraft, CustomDNSImport, CustomDNSPreview, APIError, ConnectionObservation, ConnectionRefreshResult, ConnectivityResponse, ControlConfig, DevicePolicyDocument, DevicesResponse, DeviceTraffic, Diagnostics, DoctorRunStatus, GatewayPlan, LocalRouting, LocalRoutingMode, MenuBarIndicators, NetworkDefaults, NetworkInterfacesResponse, Operation, Overview, PolicySet, PolicyWorkspaceRequest, PolicyWorkspaceSnapshot, ProfileOverlay, ProfileOverlayDocument, ProfileOverlayPreview, ProxyGroup, ProxyHealthSnapshot, ProxyHealthTestResponse, RequestedLanguage, SleepPreventionStatus, Source, SourceSnapshotFile, TailscaleDiscoveryResponse, TailscaleResponse, TailscaleUpdate, UIPreferences } from './types'
+import type { CustomDNSDocument, CustomDNSDraft, CustomDNSImport, CustomDNSPreview, APIError, ConnectionObservation, ConnectionRefreshResult, ConnectivityResponse, ControlConfig, DevicePolicyDocument, DevicesResponse, DeviceTraffic, Diagnostics, DoctorRunStatus, GatewayPlan, LocalRouting, LocalRoutingMode, MenuBarIndicators, NetworkDefaults, NetworkInterfacesResponse, Operation, Overview, PolicySet, PolicyWorkspaceRequest, PolicyWorkspaceSnapshot, ProfileOverlay, ProfileOverlayDocument, ProfileOverlayPreview, ProxyEnabled, ProxyGroup, ProxyHealthSnapshot, ProxyHealthTestResponse, RequestedLanguage, SleepPreventionStatus, Source, SourceSnapshotFile, TailscaleDiscoveryResponse, TailscaleResponse, TailscaleUpdate, UIPreferences } from './types'
 import { getOperation, markOperationConnection, operationStatusUnknownMessage, recordOperation } from './operations'
 import { desktopAction, desktopHeaders, isDesktop } from './desktop'
 import { t } from './i18n'
@@ -145,6 +145,8 @@ export const api = {
   selectPolicy: (group: string, policy: string) => request(`/api/v1/policies/${encodeURIComponent(group)}/selection`, { method: 'POST', body: JSON.stringify({ policy }) }),
   localRouting: () => request<LocalRouting>('/api/v1/local-routing'),
   setLocalRouting: (mode: LocalRoutingMode, globalPolicy?: string) => request<LocalRouting>('/api/v1/local-routing', { method: 'POST', body: JSON.stringify({ mode, global_policy: globalPolicy }) }),
+  proxyEnabled: () => request<ProxyEnabled>('/api/v1/proxy-enabled'),
+  setProxyEnabled: (enabled: boolean) => request<ProxyEnabled>('/api/v1/proxy-enabled', { method: 'POST', body: JSON.stringify({ enabled }) }),
   refreshLocalConnections: () => request<ConnectionRefreshResult>('/api/v1/local-routing/connections/refresh', { method: 'POST' }),
   refreshDeviceConnections: (device: string) => request<ConnectionRefreshResult>(`/api/v1/devices/${encodeURIComponent(device)}/connections/refresh`, { method: 'POST' }),
   refreshPolicyConnections: (group: string) => request<ConnectionRefreshResult>(`/api/v1/policies/${encodeURIComponent(group)}/connections/refresh`, { method: 'POST' }),

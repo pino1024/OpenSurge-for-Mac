@@ -4,7 +4,6 @@ import { connectionDeviceName, connectionOwnerKey } from '../connections'
 import { t } from '../i18n'
 import { buildSmoothChart } from '../trafficChart'
 import { formatRate } from '../trafficFormat'
-import type { LocalRoutingMode } from '../types'
 import { FanCurve } from './FanCurve'
 import { saveTrayLayout, trayLayout } from './trayLayout'
 import { useHostMeters, useTrayActivity } from './useTrayActivity'
@@ -12,15 +11,13 @@ import { useHostMeters, useTrayActivity } from './useTrayActivity'
 export function TrayActivity({ gateway, onOpen }: { gateway?: string; onOpen: (page: string, options?: { owner?: string; section?: 'active-devices' }) => void }) {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [devicesOpen, setDevicesOpen] = useState(() => trayLayout().devices)
-  const [routingOpen, setRoutingOpen] = useState(() => trayLayout().routing)
   const [modeBusy, setModeBusy] = useState(false)
   const [modeError, setModeError] = useState('')
   const [aliasByIP, setAliasByIP] = useState<Record<string, string>>({})
   const detailID = useId()
   const toggle = (key: string) => setExpanded(current => current === key ? null : key)
   const toggleDevices = () => setDevicesOpen(current => { saveTrayLayout({ devices: !current }); return !current })
-  const toggleRouting = () => setRoutingOpen(current => { saveTrayLayout({ routing: !current }); return !current })
-  const { traffic, routing, history, deviceKeys, trafficFailed, routingFailed, applyMode } = useTrayActivity(gateway)
+  const { traffic, proxy, history, deviceKeys, trafficFailed, proxyFailed, applyProxy } = useTrayActivity(gateway)
   const [chart, setChart] = useState<'cpu' | 'traffic' | 'fan'>(() => trayLayout().chart)
   const selectChart = (next: 'cpu' | 'traffic' | 'fan') => { setChart(next); saveTrayLayout({ chart: next }) }
   const meters = useHostMeters(chart === 'cpu' || chart === 'fan')
@@ -29,13 +26,13 @@ export function TrayActivity({ gateway, onOpen }: { gateway?: string; onOpen: (p
   const maximum = Math.max(1, ...history.flatMap(point => [point.download, point.upload]))
   const download = buildSmoothChart(history.map(point => point.download), maximum, 4, 46)
   const upload = buildSmoothChart(history.map(point => point.upload), maximum, 4, 46)
-  const mode = routing ? ({ rule: '按规则', global: '固定出口', direct: '本机直连' } as const)[routing.mode] : null
-  const setMode = async (next: LocalRoutingMode) => {
-    if (!running || !routing || modeBusy || routing.mode === next) return
+  const setProxy = async (enabled: boolean) => {
+    if (!proxy || modeBusy || proxy.enabled === enabled) return
     setModeBusy(true)
     setModeError('')
     try {
-      await applyMode(next)
+      const updated = await applyProxy(enabled)
+      if (updated.warning) setModeError(updated.warning)
     } catch (cause) {
       setModeError(cause instanceof Error ? cause.message : String(cause))
     } finally {
@@ -59,9 +56,10 @@ export function TrayActivity({ gateway, onOpen }: { gateway?: string; onOpen: (p
         </div>
       </div>
       {chart === 'fan' ? <FanCurve meters={meters} /> : chart === 'cpu' ? <div className="tray-cpu">
-        <div className="tray-rates">
+        <div className="tray-rates tray-rates-host">
           <div><span>CPU</span><strong>{meters.cpu_ok ? `${Math.round(meters.cpu)}%` : '—'}</strong></div>
           <div><span>{t('内存')}</span><strong>{meters.memory_ok ? `${Math.round(meters.memory)}%` : '—'}</strong></div>
+          <div><span>{t('磁盘')}</span><strong>{meters.disk_ok ? `${Math.round(meters.disk)}%` : '—'}</strong></div>
         </div>
         <div className="cpu-bars" role="img" aria-label={t('每个核的当前占用')}>
           {meters.cores.map((value, index) => {
@@ -90,29 +88,16 @@ export function TrayActivity({ gateway, onOpen }: { gateway?: string; onOpen: (p
       <div className="tray-traffic-caption"><p className="tray-caption" role="status">{t(gateway === 'stopped' ? '启动网关后显示实时流量' : !running ? '等待网关状态…' : trafficFailed ? '流量暂不可用' : !sampled ? '正在采样流量…' : '近 60 秒 · 经 OpenSurge 的流量')}</p>{gateway === 'stopped' && <button className="tray-text-button" onClick={() => onOpen('network')}>{t('前往启动')} <span aria-hidden="true">›</span></button>}</div>
       </>}
     </section>
-    <div className={`tray-routing-group ${routingOpen ? 'expanded' : ''}`}>
+    <div className="tray-routing-group">
       <div className="tray-routing-header">
-        <span>{t('本机出口')}{!routing && <small>{t(!running ? '网关未运行' : routingFailed ? '暂不可用' : '正在读取…')}</small>}</span>
-        <div className="tray-routing-actions">
-          <div className="tray-mode-switch" role="group" aria-label={t('本机出口')}>
-            <button type="button" aria-pressed={routing ? routing.mode !== 'direct' : false} disabled={!running || !routing || modeBusy} onClick={() => void setMode('rule')}>{t('旁路由')}</button>
-            <button type="button" aria-pressed={routing?.mode === 'direct'} disabled={!running || !routing || modeBusy} onClick={() => void setMode('direct')}>{t('直连')}</button>
-          </div>
-          <button type="button" className="tray-routing-disclosure" aria-label={t('本机出口详情')} aria-expanded={routingOpen} aria-controls={`${detailID}-routing`} onClick={toggleRouting}><svg className="tray-disclosure" viewBox="0 0 12 12" aria-hidden="true"><path d="m4 2 4 4-4 4" /></svg></button>
+        <span>{t('代理')}{!proxy && <small>{t(proxyFailed ? '暂不可用' : '正在读取…')}</small>}</span>
+        <div className="tray-mode-switch" role="group" aria-label={t('代理')}>
+          <button type="button" aria-pressed={proxy ? proxy.enabled : false} disabled={!proxy || modeBusy} onClick={() => void setProxy(true)}>{t('开启')}</button>
+          <button type="button" aria-pressed={proxy ? !proxy.enabled : false} disabled={!proxy || modeBusy} onClick={() => void setProxy(false)}>{t('关闭')}</button>
         </div>
       </div>
       {modeError && <p className="tray-error" role="alert">{modeError}</p>}
-      <div className="tray-detail-reveal" id={`${detailID}-routing`} aria-hidden={!routingOpen} inert={!routingOpen}><div className="tray-detail-inner"><div className="tray-routing-details">
-        <p className="tray-hint">{t(routingFailed ? '暂不可用' : '仅影响本机 Mac，下游设备保持各自的出口设置。')}</p>
-        {routing && <dl className="tray-status">
-          <div><dt>{t('出口方式')}</dt><dd>{mode ? t(mode) : '—'}</dd></div>
-          {routing.global_group && <div><dt>{t('当前出口')}</dt><dd title={routing.global_group.selected}>{routing.global_group.selected}</dd></div>}
-          <div><dt>UDP</dt><dd>{t(({ rules: '按规则', proxy: '代理', direct: '直连', reject: '拒绝' } as const)[routing.udp_behavior])}</dd></div>
-          <div><dt>{t('接入方式')}</dt><dd>{routing.transports.map(transport => transport === 'tun' ? 'TUN' : t('显式代理')).join(' · ') || '—'}</dd></div>
-        </dl>}
-        {(routing?.warning || (routing && !routing.consistent)) && <p className="tray-inline-warning">{t('本机出口需要检查')}</p>}
-        <button className="tray-text-button" onClick={() => onOpen('devices')}>{t('在桌面窗口中设置')} <span aria-hidden="true">↗</span></button>
-      </div></div></div>
+      <p className="tray-hint tray-proxy-hint">{t('关闭后本机和下游都直连上网，不走梯子。网关保持运行。')}</p>
     </div>
     <section className={`tray-devices ${devicesOpen ? 'expanded' : ''}`} aria-label={t('活跃设备')}>
       <div className="tray-section-heading">

@@ -62,8 +62,10 @@ This repository is a personal optimized fork of [YTwsy/OpenSurge-for-Mac](https:
 
 Changes relative to upstream:
 
-- The menu bar can show this Mac’s total download rate, CPU use, memory use, and CPU temperature
+- The menu bar can show this Mac’s total download rate, CPU use, memory use, internal disk use, and CPU temperature, with fixed-width integer meters
 - Login launch stays in the menu bar and does not open a window
+- The title bar can start or stop bypass routing and clear leftover reboot state; stopping does not confirm, and starting again flushes DNS so the proxy keeps working
+- The tray has a Proxy on/off switch: when off, this Mac and LAN devices browse directly while the gateway stays running
 - Switching this Mac between Rule, Global, and Direct closes its current connections so apps reconnect under the new mode
 - Active devices can have a display alias per connected IP
 - The tray can run the fan from a temperature curve, and turning it off returns the fan to the system

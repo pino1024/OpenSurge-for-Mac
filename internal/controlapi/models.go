@@ -109,6 +109,7 @@ type MenuBarIndicators struct {
 	Download    bool `json:"download"`
 	CPU         bool `json:"cpu"`
 	Memory      bool `json:"memory"`
+	Disk        bool `json:"disk"`
 	Temperature bool `json:"temperature"`
 }
 
@@ -494,6 +495,18 @@ type LocalRoutingRequest struct {
 type LocalRoutingResponse struct {
 	SchemaVersion int `json:"schema_version"`
 	mihomo.LocalRoutingSnapshot
+}
+
+type ProxyEnabledRequest struct {
+	Enabled *bool `json:"enabled"`
+}
+
+type ProxyEnabledResponse struct {
+	SchemaVersion int    `json:"schema_version"`
+	Enabled       bool   `json:"enabled"`
+	Mode          string `json:"mode"`
+	Live          bool   `json:"live"`
+	Warning       string `json:"warning,omitempty"`
 }
 
 type ConnectionRefreshResponse struct {

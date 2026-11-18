@@ -70,6 +70,8 @@ rules:
 		`name: open-surge/mac-mode-udp`,
 		`hidden: true`,
 		`AND,((IN-TYPE,TUN),(SRC-IP-CIDR,198.18.0.1/32),(NETWORK,TCP)),open-surge/mac-mode-tcp`,
+		`AND,((IN-NAME,DEFAULT-MIXED),(SRC-IP-CIDR,127.0.0.0/8),(NETWORK,TCP)),open-surge/mac-mode-tcp`,
+		`AND,((IN-TYPE,HTTPS),(SRC-IP-CIDR,127.0.0.0/8),(NETWORK,TCP)),open-surge/mac-mode-tcp`,
 		`AND,((IN-TYPE,SOCKS/HTTP),(SRC-IP-CIDR,127.0.0.0/8),(NETWORK,UDP)),open-surge/mac-mode-udp`,
 	} {
 		if !strings.Contains(rendered, want) {
@@ -86,6 +88,22 @@ rules:
 		"DOMAIN,global.example,Main",
 		"MATCH,DIRECT",
 	)
+}
+
+func TestLocalRoutingExplicitInboundsCoverMixedHTTPS(t *testing.T) {
+	cfg := config.Default()
+	cfg.Gateway.LANIP = "192.168.31.109"
+	rules := strings.Join(buildLocalRoutingPolicy(cfg, nil).Rules, "\n")
+	for _, want := range []string{
+		"AND,((IN-NAME,DEFAULT-MIXED),(SRC-IP-CIDR,127.0.0.0/8),(NETWORK,TCP)),open-surge/mac-mode-tcp",
+		"AND,((IN-TYPE,HTTPS),(SRC-IP-CIDR,127.0.0.0/8),(NETWORK,TCP)),open-surge/mac-mode-tcp",
+		"AND,((IN-TYPE,HTTPS),(SRC-IP-CIDR,192.168.31.109/32),(NETWORK,TCP)),open-surge/mac-mode-tcp",
+		"AND,((IN-TYPE,HTTP),(SRC-IP-CIDR,127.0.0.0/8),(NETWORK,TCP)),open-surge/mac-mode-tcp",
+	} {
+		if !strings.Contains(rules, want) {
+			t.Fatalf("missing mixed-port Direct rule %q\n%s", want, rules)
+		}
+	}
 }
 
 func TestBuildLocalRoutingPolicyAddsOnlyEffectiveSystemTUNIPv6Identities(t *testing.T) {

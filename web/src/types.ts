@@ -64,6 +64,13 @@ export type LocalRouting = {
   consistent: boolean
   warning?: string
 }
+export type ProxyEnabled = {
+  schema_version: number
+  enabled: boolean
+  mode: 'rule' | 'direct'
+  live: boolean
+  warning?: string
+}
 export type ProxyHealthEntry = {
   name: string
   display_name?: string
@@ -206,7 +213,7 @@ export type Overview = {
 }
 
 export type RequestedLanguage = 'system' | 'zh-Hans' | 'en'
-export type MenuBarIndicators = { download: boolean; cpu: boolean; memory: boolean; temperature: boolean }
+export type MenuBarIndicators = { download: boolean; cpu: boolean; memory: boolean; disk: boolean; temperature: boolean }
 export type UIPreferences = { schema_version: number; language: RequestedLanguage; menu_bar?: MenuBarIndicators; device_aliases?: Record<string, string> }
 
 export type Source = {

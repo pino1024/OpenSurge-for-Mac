@@ -13,6 +13,17 @@ func TestHostMemoryPercent(t *testing.T) {
 	t.Logf("host memory %.1f%%", p)
 }
 
+func TestHostDiskPercent(t *testing.T) {
+	p, ok := HostDiskPercent()
+	if !ok {
+		t.Fatal("host disk statistics unavailable")
+	}
+	if p < 0 || p > 100 {
+		t.Fatalf("implausible disk percent %.1f", p)
+	}
+	t.Logf("host disk %.1f%%", p)
+}
+
 func TestFanSample(t *testing.T) {
 	c, cOK, rpm, rpmOK, minRPM, maxRPM := FanSample()
 	if !rpmOK {

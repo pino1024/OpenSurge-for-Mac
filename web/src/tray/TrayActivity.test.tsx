@@ -7,7 +7,7 @@ import { activateLanguage, prepareLanguage } from '../i18n'
 import type { DeviceTraffic, DeviceTrafficRow } from '../types'
 import { TrayActivity } from './TrayActivity'
 
-vi.mock('../api', () => ({ api: { localRouting: vi.fn(), setLocalRouting: vi.fn(), refreshLocalConnections: vi.fn(), setUIPreferences: vi.fn() } }))
+vi.mock('../api', () => ({ api: { proxyEnabled: vi.fn(), setProxyEnabled: vi.fn(), setUIPreferences: vi.fn() } }))
 vi.mock('../desktop', () => ({ desktopAction: vi.fn() }))
 const row = (key: string, name: string, rate: number, connections = 1): DeviceTrafficRow => ({ key, name, ip: '192.0.2.20', mac: '', identity_source: 'registered_static', online: true, active_connections: connections, upload: 0, download: 0, upload_rate: 0, download_rate: rate })
 const fixture: DeviceTraffic = {
@@ -21,15 +21,14 @@ beforeEach(async () => {
  await prepareLanguage('en'); activateLanguage('en')
  vi.useFakeTimers()
  vi.mocked(desktopAction).mockImplementation(async action => {
-  if (action === 'host-meters') return { cpu: 18, cpu_ok: true, memory: 27, memory_ok: true, temperature: 56, temperature_ok: true, fan_rpm: 1200, fan_ok: true, fan_visible: true, fan_min: 1000, fan_max: 4900, cores: [10, 40, 80], core_temps: [41.2, 55.6, 60.4], power_temp: 54.2, gpu_temp: 43.4, perf_temp: 44.1 }
+  if (action === 'host-meters') return { cpu: 18, cpu_ok: true, memory: 27, memory_ok: true, disk: 41, disk_ok: true, temperature: 56, temperature_ok: true, fan_rpm: 1200, fan_ok: true, fan_visible: true, fan_min: 1000, fan_max: 4900, cores: [10, 40, 80], core_temps: [41.2, 55.6, 60.4], power_temp: 54.2, gpu_temp: 43.4, perf_temp: 44.1 }
   return { traffic: { ...fixture, sampled_at: new Date().toISOString() }, failed: false, history: [
    { time: Date.now() - 2000, ...fixture.gateway_rates }, { time: Date.now(), ...fixture.gateway_rates },
   ] }
  })
- const routing = { schema_version: 1, mode: 'rule' as const, available_modes: ['rule', 'direct'] as Array<'rule' | 'direct'>, udp_behavior: 'rules' as const, transports: ['tun'] as Array<'tun'>, new_connections_only: true, consistent: true }
- vi.mocked(api.localRouting).mockResolvedValue(routing)
- vi.mocked(api.setLocalRouting).mockImplementation(async mode => ({ ...routing, mode }))
- vi.mocked(api.refreshLocalConnections).mockResolvedValue({ schema_version: 1, scope: 'gateway_local', matched_connections: 0, closed_connections: 0 })
+ const proxy = { schema_version: 1, enabled: true, mode: 'rule' as const, live: true }
+ vi.mocked(api.proxyEnabled).mockResolvedValue(proxy)
+ vi.mocked(api.setProxyEnabled).mockImplementation(async enabled => ({ ...proxy, enabled, mode: enabled ? 'rule' as const : 'direct' as const, live: true }))
  vi.mocked(api.setUIPreferences).mockResolvedValue({ schema_version: 1, language: 'en', device_aliases: {} })
 })
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.resetAllMocks(); localStorage.clear(); delete window.__opensurgeWindowVisible; activateLanguage('zh-Hans') })
@@ -47,12 +46,7 @@ it('shows live rates, counts active downstream devices, and expands details befo
  fireEvent.click(screen.getByRole('button', { name: /View all/ }))
  expect(open).toHaveBeenCalledWith('dashboard', { section: 'active-devices' })
  open.mockClear()
- fireEvent.click(screen.getByRole('button', { name: /This Mac’s routing details/ }))
- expect(open).not.toHaveBeenCalled()
- expect(screen.getByText('Applies to this Mac only. LAN devices keep their own routing settings.')).toBeTruthy()
- fireEvent.click(screen.getByRole('button', { name: 'Configure in desktop window' }))
- expect(open).toHaveBeenCalledWith('devices')
- open.mockClear()
+ expect(screen.getByText('When off, this Mac and LAN devices browse the internet without the proxy. The gateway stays running.')).toBeTruthy()
  fireEvent.click(screen.getByRole('button', { name: 'Device details: Apple TV' }))
  expect(open).not.toHaveBeenCalled()
  fireEvent.click(screen.getByRole('button', { name: /connections for Apple TV/ }))
@@ -69,6 +63,8 @@ it('switches the chart between CPU status and network traffic', async () => {
  expect(traffic.getAttribute('aria-pressed')).toBe('false')
  expect(screen.getByText('18%')).toBeTruthy()
  expect(screen.getByText('27%')).toBeTruthy()
+ expect(screen.getByText('41%')).toBeTruthy()
+ expect(screen.getByText('Disk')).toBeTruthy()
  expect(screen.getByRole('img', { name: 'Current usage of each core' })).toBeTruthy()
  expect(document.querySelectorAll('.cpu-bar')).toHaveLength(3)
  expect(screen.queryByText(/Current usage of each core ·/)).toBeNull()
@@ -95,22 +91,21 @@ it('hides the fan speed when fan control is off', async () => {
  expect(screen.queryByText(/rpm/)).toBeNull()
 })
 
-it('switches this Mac between bypass and direct routing without opening the desktop window', async () => {
+it('turns the proxy on and off for this Mac and LAN devices without opening the desktop window', async () => {
  const open = vi.fn()
  await act(async () => { render(<TrayActivity gateway="running" onOpen={open} />) })
- const bypass = screen.getByRole('button', { name: 'Bypass' }) as HTMLButtonElement
- const direct = screen.getByRole('button', { name: 'Direct' }) as HTMLButtonElement
- expect(bypass.getAttribute('aria-pressed')).toBe('true')
- expect(direct.getAttribute('aria-pressed')).toBe('false')
- await act(async () => { fireEvent.click(direct) })
- expect(api.setLocalRouting).toHaveBeenCalledWith('direct')
- expect(api.refreshLocalConnections).toHaveBeenCalled()
- expect(direct.getAttribute('aria-pressed')).toBe('true')
- expect(bypass.getAttribute('aria-pressed')).toBe('false')
+ const on = screen.getByRole('button', { name: 'On' }) as HTMLButtonElement
+ const off = screen.getByRole('button', { name: 'Off' }) as HTMLButtonElement
+ expect(on.getAttribute('aria-pressed')).toBe('true')
+ expect(off.getAttribute('aria-pressed')).toBe('false')
+ await act(async () => { fireEvent.click(off) })
+ expect(api.setProxyEnabled).toHaveBeenCalledWith(false)
+ expect(off.getAttribute('aria-pressed')).toBe('true')
+ expect(on.getAttribute('aria-pressed')).toBe('false')
  expect(open).not.toHaveBeenCalled()
- await act(async () => { fireEvent.click(bypass) })
- expect(api.setLocalRouting).toHaveBeenCalledWith('rule')
- expect(bypass.getAttribute('aria-pressed')).toBe('true')
+ await act(async () => { fireEvent.click(on) })
+ expect(api.setProxyEnabled).toHaveBeenCalledWith(true)
+ expect(on.getAttribute('aria-pressed')).toBe('true')
 })
 
 it('pauses renderer reads but displays retained native history immediately on reopening', async () => {
@@ -138,15 +133,15 @@ it('pauses renderer reads but displays retained native history immediately on re
  expect(desktopAction).toHaveBeenCalledTimes(stoppedCalls)
 })
 
-it('renders cached traffic without waiting for a stalled routing request', async () => {
- vi.mocked(api.localRouting).mockReturnValue(new Promise(() => {}))
+it('renders cached traffic without waiting for a stalled proxy request', async () => {
+ vi.mocked(api.proxyEnabled).mockReturnValue(new Promise(() => {}))
  await act(async () => { render(<TrayActivity gateway="running" onOpen={vi.fn()} />) })
  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Traffic' })) })
  expect(screen.getByText('12 MB/s')).toBeTruthy()
  expect(screen.getByText('Loading…')).toBeTruthy()
  await act(async () => { await vi.advanceTimersByTimeAsync(4000) })
  expect(desktopAction).toHaveBeenCalledTimes(6)
- expect(api.localRouting).toHaveBeenCalledOnce()
+ expect(api.proxyEnabled).toHaveBeenCalledOnce()
 })
 
 it('does not turn the first baseline sample into a zero rate', async () => {
