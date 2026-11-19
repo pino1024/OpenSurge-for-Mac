@@ -1,7 +1,6 @@
 import { LANAccessCard } from '../components/LANAccessCard'
-import { FanControl } from '../tray/FanControl'
 import { releaseDisplayVersion } from '../release'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { Select } from '../components/Select'
 import { LoginItemFeedback } from '../components/LoginItemFeedback'
@@ -11,7 +10,6 @@ import { useDesktopRuntime } from '../hooks/useDesktopRuntime'
 import { useInterfaceLanguage } from '../hooks/useInterfaceLanguage'
 import { useTheme, type ThemePreference } from '../hooks/useTheme'
 import { t, type RequestedLanguage } from '../i18n'
-import type { MenuBarIndicators } from '../types'
 import { watchVisibleRefresh } from '../visibility'
 import '../styles.css'
 import './settings.css'
@@ -22,8 +20,6 @@ export function SettingsApp() {
  const [, , preference, setPreference] = useTheme()
  const { state, busy: utilityBusy, error: utilityError, setError: setUtilityError, check, changeLogin, openLink, uninstall } = useDesktopUtilities()
  const { snapshot, busy: runtimeBusy, error: runtimeError, changeSleep, quit } = useDesktopRuntime()
- const [metrics, setMetrics] = useState<MenuBarIndicators>({ download: true, cpu: true, memory: true, disk: true, temperature: true })
- const metricsBusy = useRef(false)
  const busy = utilityBusy || runtimeBusy
  const login = state?.login
  const update = state?.update
@@ -40,46 +36,6 @@ export function SettingsApp() {
   }, 3000)
   return () => { active = false; stop() }
  }, [beginLanguageRefresh])
- useEffect(() => {
-  let active = true
-  const apply = (value: { menu_bar?: Partial<MenuBarIndicators> }) => {
-   if (metricsBusy.current) return
-   setMetrics({
-    download: value.menu_bar?.download ?? true,
-    cpu: value.menu_bar?.cpu ?? true,
-    memory: value.menu_bar?.memory ?? true,
-    disk: value.menu_bar?.disk ?? true,
-    temperature: value.menu_bar?.temperature ?? true,
-   })
-  }
-  const stop = watchVisibleRefresh(async () => {
-   try { const next = await api.uiPreferences(); if (active) apply(next) }
-   catch { /* Keep the last meters while the Control API reconnects. */ }
-  }, 3000)
-  return () => { active = false; stop() }
- }, [])
- const changeMetric = async (key: keyof MenuBarIndicators, value: boolean) => {
-  if (metricsBusy.current) return
-  const previous = metrics
-  const next = { ...metrics, [key]: value }
-  metricsBusy.current = true
-  setMetrics(next)
-  setError('')
-  try {
-   const saved = await api.setUIPreferences({ menu_bar: next })
-   setMetrics({
-    download: saved.menu_bar?.download ?? next.download,
-    cpu: saved.menu_bar?.cpu ?? next.cpu,
-    memory: saved.menu_bar?.memory ?? next.memory,
-    disk: saved.menu_bar?.disk ?? next.disk,
-    temperature: saved.menu_bar?.temperature ?? next.temperature,
-   })
-   void desktopAction('menubar-status', { refresh: true }).catch(() => {})
-  } catch (cause) {
-   setMetrics(previous)
-   setError(cause instanceof Error ? cause.message : String(cause))
-  } finally { metricsBusy.current = false }
- }
  return <main className="settings-app">
   <div className="desktop-titlebar" aria-hidden="true" />
   <header className="settings-header"><img src="/opensurge-icon.png" alt="" /><div>
@@ -93,17 +49,10 @@ export function SettingsApp() {
    <div className="settings-row"><label htmlFor="settings-language">{t('界面语言')}</label><Select id="settings-language" aria-label={t('界面语言')} value={language} disabled={languageChanging} onChange={value => { setError(''); void changeLanguage(value as RequestedLanguage) }}><option value="system">{t('跟随系统')}</option><option value="zh-Hans">简体中文</option><option value="en">English</option></Select></div>
    {languageChanging && <p className="settings-hint" role="status">{t('正在保存语言…')}</p>}
    <div className="settings-row"><label htmlFor="settings-appearance">{t('外观')}</label><Select id="settings-appearance" aria-label={t('外观')} value={preference} onChange={value => setPreference(value as ThemePreference)}><option value="system">{t('跟随系统')}</option><option value="light">{t('浅色模式')}</option><option value="dark">{t('深色模式')}</option></Select></div>
-   <div className="settings-row"><span>{t('菜单栏指标')}<small>{t('显示在菜单栏图标旁边，可任意开关。')}</small></span></div>
-   <label className="settings-row"><span>{t('下行速率')}</span><input type="checkbox" role="switch" aria-label={t('下行速率')} checked={metrics.download} disabled={busy} onChange={event => void changeMetric('download', event.target.checked)} /></label>
-   <label className="settings-row"><span>{t('CPU 占用')}</span><input type="checkbox" role="switch" aria-label={t('CPU 占用')} checked={metrics.cpu} disabled={busy} onChange={event => void changeMetric('cpu', event.target.checked)} /></label>
-   <label className="settings-row"><span>{t('内存占用')}</span><input type="checkbox" role="switch" aria-label={t('内存占用')} checked={metrics.memory} disabled={busy} onChange={event => void changeMetric('memory', event.target.checked)} /></label>
-   <label className="settings-row"><span>{t('磁盘占用')}</span><input type="checkbox" role="switch" aria-label={t('磁盘占用')} checked={metrics.disk} disabled={busy} onChange={event => void changeMetric('disk', event.target.checked)} /></label>
-   <label className="settings-row"><span>{t('CPU 温度')}</span><input type="checkbox" role="switch" aria-label={t('CPU 温度')} checked={metrics.temperature} disabled={busy} onChange={event => void changeMetric('temperature', event.target.checked)} /></label>
   </section>
   <section className="settings-section" aria-label={t('运行偏好')}>
    <label className="settings-row"><span>{t('登录时启动')}<small>{t('登录 Mac 后在后台启动，不打开窗口。')}</small></span><input type="checkbox" role="switch" aria-label={t('登录时启动')} checked={login?.state === 'enabled' || login?.state === 'approval'} disabled={!login || busy || login.state === 'unavailable'} onChange={event => void changeLogin(event.target.checked)} /></label>
    <LoginItemFeedback login={login} hintClass="settings-hint" errorClass="settings-error" openSettings={() => openLink('login-settings')} />
-   <FanControl variant="settings" />
    {snapshot?.notebook === true && <>
     <label className="settings-row"><span>{t('合盖保持运行')}<small>{t('默认关闭 · 本次运行有效')}</small></span><input type="checkbox" role="switch" aria-label={t('合盖保持运行')} checked={sleep?.active ?? false} disabled={!sleep || busy} onChange={event => void changeSleep(event.target.checked)} /></label>
     {sleep?.active && <p className="settings-hint">{t('合盖后仍会运行，请注意耗电与散热，不要放入不通风的包内。')}</p>}

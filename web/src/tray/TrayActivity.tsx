@@ -4,11 +4,44 @@ import { connectionDeviceName, connectionOwnerKey } from '../connections'
 import { t } from '../i18n'
 import { buildSmoothChart } from '../trafficChart'
 import { formatRate } from '../trafficFormat'
+import type { MenuBarIndicators } from '../types'
 import { FanCurve } from './FanCurve'
+import { useFanConfig } from './fanConfig'
 import { saveTrayLayout, trayLayout } from './trayLayout'
-import { useHostMeters, useTrayActivity } from './useTrayActivity'
+import { useHostMeters, useTrayActivity, type HostMeters } from './useTrayActivity'
 
-export function TrayActivity({ gateway, onOpen }: { gateway?: string; onOpen: (page: string, options?: { owner?: string; section?: 'active-devices' }) => void }) {
+const defaultMetrics: MenuBarIndicators = { download: true, cpu: true, memory: true, disk: true, temperature: true }
+
+function formatMeterRate(value: number) {
+  if (!Number.isFinite(value) || value < 0) return '—'
+  if (value < 1000) return `${Math.round(value)}B`
+  if (value < 1_000_000) return `${Math.round(value / 1000)}K`
+  if (value < 1_000_000_000) return `${Math.round(value / 1_000_000)}M`
+  return `${Math.round(value / 1_000_000_000)}G`
+}
+
+function HostMetersRow({ meters, metrics, metricsReady, onMetricChange }: { meters: HostMeters; metrics: MenuBarIndicators; metricsReady: boolean; onMetricChange?: (key: keyof MenuBarIndicators, value: boolean) => void }) {
+  const fan = useFanConfig()
+  const items = [
+    { key: 'download', name: t('下行'), value: meters.download_ok ? formatMeterRate(meters.download) : '—', checked: metrics.download, label: t('下行速率'), onChange: (value: boolean) => onMetricChange?.('download', value), disabled: !metricsReady },
+    { key: 'cpu', name: 'CPU', value: meters.cpu_ok ? `${Math.round(meters.cpu)}%` : '—', checked: metrics.cpu, label: t('CPU 占用'), onChange: (value: boolean) => onMetricChange?.('cpu', value), disabled: !metricsReady },
+    { key: 'memory', name: t('内存'), value: meters.memory_ok ? `${Math.round(meters.memory)}%` : '—', checked: metrics.memory, label: t('内存占用'), onChange: (value: boolean) => onMetricChange?.('memory', value), disabled: !metricsReady },
+    { key: 'disk', name: t('磁盘'), value: meters.disk_ok ? `${Math.round(meters.disk)}%` : '—', checked: metrics.disk, label: t('磁盘占用'), onChange: (value: boolean) => onMetricChange?.('disk', value), disabled: !metricsReady },
+    { key: 'temperature', name: t('温度'), value: meters.temperature_ok ? `${Math.round(meters.temperature)}°` : '—', checked: metrics.temperature, label: t('CPU 温度'), onChange: (value: boolean) => onMetricChange?.('temperature', value), disabled: !metricsReady },
+    { key: 'fan', name: t('风扇'), value: meters.fan_ok ? `${Math.round(meters.fan_rpm)}` : '—', checked: fan.config.visible, label: t('风扇转速'), onChange: (value: boolean) => void fan.save({ ...fan.config, visible: value }), disabled: fan.busy },
+  ] as const
+  return <>
+    <div className="tray-rates tray-rates-host" role="group" aria-label={t('菜单栏指标')}>
+      {items.map(item => <label key={item.key} className="tray-meter">
+        <span className="tray-meter-head"><span className="tray-meter-name">{item.name}</span><input type="checkbox" role="switch" aria-label={item.label} checked={item.checked} disabled={item.disabled} onChange={event => item.onChange(event.target.checked)} /></span>
+        <strong>{item.value}</strong>
+      </label>)}
+    </div>
+    {fan.error && <p className="tray-error" role="alert">{fan.error}</p>}
+  </>
+}
+
+export function TrayActivity({ gateway, onOpen, metrics = defaultMetrics, metricsReady = false, onMetricChange }: { gateway?: string; onOpen: (page: string, options?: { owner?: string; section?: 'active-devices' }) => void; metrics?: MenuBarIndicators; metricsReady?: boolean; onMetricChange?: (key: keyof MenuBarIndicators, value: boolean) => void }) {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [devicesOpen, setDevicesOpen] = useState(() => trayLayout().devices)
   const [modeBusy, setModeBusy] = useState(false)
@@ -56,11 +89,7 @@ export function TrayActivity({ gateway, onOpen }: { gateway?: string; onOpen: (p
         </div>
       </div>
       {chart === 'fan' ? <FanCurve meters={meters} /> : chart === 'cpu' ? <div className="tray-cpu">
-        <div className="tray-rates tray-rates-host">
-          <div><span>CPU</span><strong>{meters.cpu_ok ? `${Math.round(meters.cpu)}%` : '—'}</strong></div>
-          <div><span>{t('内存')}</span><strong>{meters.memory_ok ? `${Math.round(meters.memory)}%` : '—'}</strong></div>
-          <div><span>{t('磁盘')}</span><strong>{meters.disk_ok ? `${Math.round(meters.disk)}%` : '—'}</strong></div>
-        </div>
+        <HostMetersRow meters={meters} metrics={metrics} metricsReady={metricsReady} onMetricChange={onMetricChange} />
         <div className="cpu-bars" role="img" aria-label={t('每个核的当前占用')}>
           {meters.cores.map((value, index) => {
             const lit = Math.round(Math.min(100, Math.max(0, value)) / 100 * cpuSegments)

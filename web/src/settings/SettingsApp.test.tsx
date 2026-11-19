@@ -47,17 +47,6 @@ it('publishes language only after saving, fences stale reads, and preserves it o
  expect(window.localStorage.getItem(languageCacheKey)).toBe('zh-Hans')
 })
 
-it('saves menu bar meters without changing language', async () => {
- render(<SettingsApp />)
- await screen.findByRole('heading', { name: 'OpenSurge Settings' })
- const cpu = await screen.findByRole('switch', { name: 'CPU usage' })
- expect((cpu as HTMLInputElement).checked).toBe(true)
- fireEvent.click(cpu)
- await waitFor(() => expect(api.setUIPreferences).toHaveBeenCalledWith({ menu_bar: { download: true, cpu: false, memory: true, disk: true, temperature: true } }))
- expect(api.setUIPreferences).not.toHaveBeenCalledWith(expect.objectContaining({ language: expect.anything() }))
- expect(desktopAction).toHaveBeenCalledWith('menubar-status', { refresh: true })
-})
-
 it('shares appearance and language with other windows, including System appearance', async () => {
  render(<SettingsApp />)
  await screen.findByRole('heading', { name: 'OpenSurge Settings' })

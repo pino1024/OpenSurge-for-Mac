@@ -21,7 +21,7 @@ beforeEach(async () => {
  await prepareLanguage('en'); activateLanguage('en')
  vi.useFakeTimers()
  vi.mocked(desktopAction).mockImplementation(async action => {
-  if (action === 'host-meters') return { cpu: 18, cpu_ok: true, memory: 27, memory_ok: true, disk: 41, disk_ok: true, temperature: 56, temperature_ok: true, fan_rpm: 1200, fan_ok: true, fan_visible: true, fan_min: 1000, fan_max: 4900, cores: [10, 40, 80], core_temps: [41.2, 55.6, 60.4], power_temp: 54.2, gpu_temp: 43.4, perf_temp: 44.1 }
+  if (action === 'host-meters') return { download: 12_000_000, download_ok: true, cpu: 18, cpu_ok: true, memory: 27, memory_ok: true, disk: 41, disk_ok: true, temperature: 56, temperature_ok: true, fan_rpm: 1200, fan_ok: true, fan_visible: true, fan_min: 1000, fan_max: 4900, cores: [10, 40, 80], core_temps: [41.2, 55.6, 60.4], power_temp: 54.2, gpu_temp: 43.4, perf_temp: 44.1 }
   return { traffic: { ...fixture, sampled_at: new Date().toISOString() }, failed: false, history: [
    { time: Date.now() - 2000, ...fixture.gateway_rates }, { time: Date.now(), ...fixture.gateway_rates },
   ] }
@@ -64,12 +64,16 @@ it('switches the chart between CPU status and network traffic', async () => {
  expect(screen.getByText('18%')).toBeTruthy()
  expect(screen.getByText('27%')).toBeTruthy()
  expect(screen.getByText('41%')).toBeTruthy()
+ expect(screen.getByText('12M')).toBeTruthy()
  expect(screen.getByText('Disk')).toBeTruthy()
+ expect(screen.getByRole('switch', { name: 'CPU usage' })).toBeTruthy()
+ expect(screen.getByRole('switch', { name: 'CPU temperature' })).toBeTruthy()
+ expect(document.querySelectorAll('.tray-meter')).toHaveLength(6)
  expect(screen.getByRole('img', { name: 'Current usage of each core' })).toBeTruthy()
  expect(document.querySelectorAll('.cpu-bar')).toHaveLength(3)
  expect(screen.queryByText(/Current usage of each core ·/)).toBeNull()
  expect(screen.getByText('41°')).toBeTruthy()
- expect(screen.getByText('56°')).toBeTruthy()
+ expect(screen.getAllByText('56°').length).toBeGreaterThanOrEqual(1)
  expect(screen.getByText('60°')).toBeTruthy()
  expect(document.querySelector('.cpu-groups')?.textContent).toBe('Power54°GPU43°CPU44°')
  expect(screen.queryByText('12 MB/s')).toBeNull()
@@ -140,7 +144,7 @@ it('renders cached traffic without waiting for a stalled proxy request', async (
  expect(screen.getByText('12 MB/s')).toBeTruthy()
  expect(screen.getByText('Loading…')).toBeTruthy()
  await act(async () => { await vi.advanceTimersByTimeAsync(4000) })
- expect(desktopAction).toHaveBeenCalledTimes(6)
+ expect(desktopAction).toHaveBeenCalledTimes(7)
  expect(api.proxyEnabled).toHaveBeenCalledOnce()
 })
 
@@ -148,6 +152,7 @@ it('does not turn the first baseline sample into a zero rate', async () => {
  let trafficReads = 0
  vi.mocked(desktopAction).mockImplementation(async action => {
   if (action === 'host-meters') return { cpu: 0, cpu_ok: false, memory: 0, memory_ok: false, temperature: 0, temperature_ok: false, fan_rpm: 0, fan_ok: false, fan_visible: false, cores: [] }
+  if (action === 'fan-control') return { visible: true, enabled: true, points: [{ c: 60, p: 0 }, { c: 72, p: 26 }, { c: 85, p: 100 }] }
   trafficReads++
   if (trafficReads === 1) return { traffic: fixture, history: [{ time: Date.now(), upload: 0, download: 0 }], failed: false }
   return { traffic: { ...fixture, sampled_at: new Date().toISOString() }, failed: false, history: [
@@ -172,7 +177,7 @@ it('collapses stopped or unknown traffic without treating valid zero samples as 
  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Traffic' })) })
  expect(screen.getByText('Start the gateway to see live traffic')).toBeTruthy()
  expect(document.querySelector('.tray-traffic')?.classList.contains('expanded')).toBe(false)
- expect(vi.mocked(desktopAction).mock.calls.every(([action]) => action === 'host-meters')).toBe(true)
+ expect(vi.mocked(desktopAction).mock.calls.every(([action]) => action === 'host-meters' || action === 'fan-control')).toBe(true)
  fireEvent.click(screen.getByRole('button', { name: 'Open controls' }))
  expect(open).toHaveBeenCalledWith('network')
  view.rerender(<TrayActivity onOpen={open} />)

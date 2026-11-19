@@ -18,6 +18,8 @@ import (
 var trayIcon []byte
 
 type hostMeterSample struct {
+	Download       int64     `json:"download"`
+	DownloadOK     bool      `json:"download_ok"`
 	CPU            float64   `json:"cpu"`
 	CPUOK          bool      `json:"cpu_ok"`
 	Memory         float64   `json:"memory"`
@@ -55,11 +57,12 @@ func readFanControl() (fan.Status, bool) {
 	return fan.ReadStatus(path)
 }
 
-func (h *desktopHost) recordHostMeters(cpu, memory, disk, temp, fan, fanMin, fanMax float64, cpuOK, memoryOK, diskOK, tempOK, fanOK, fanVisible bool, cores, coreTemps []float64, powerTemp, gpuTemp, perfTemp float64) {
+func (h *desktopHost) recordHostMeters(cpu, memory, disk, temp, fan, fanMin, fanMax float64, cpuOK, memoryOK, diskOK, tempOK, fanOK, fanVisible bool, cores, coreTemps []float64, powerTemp, gpuTemp, perfTemp float64, download int64, downloadOK bool) {
 	control, controlOK := readFanControl()
 	h.meters.mu.Lock()
 	defer h.meters.mu.Unlock()
 	sample := &h.meters.sample
+	sample.Download, sample.DownloadOK = download, downloadOK
 	sample.CPU, sample.CPUOK = cpu, cpuOK
 	sample.Memory, sample.MemoryOK = memory, memoryOK
 	sample.Disk, sample.DiskOK = disk, diskOK
@@ -230,8 +233,9 @@ func (h *desktopHost) runMenuBarTraffic(ctx context.Context) {
 			if perfTemp < 0 {
 				perfTemp = 0
 			}
-			h.recordHostMeters(cpuPercent, memPercent, diskPercent, tempC, fanRPM, fanMin, fanMax, percentOK, memOK, diskOK, tempOK, fanOK, fanVisible, cores, native.CoreTemps(), powerTemp, gpuTemp, perfTemp)
-			native.SetMenuBarTraffic(trayactivity.FormatMenuBarStats(trayactivity.MacDownloadRate(link, h.activity.Snapshot()), cpuPercent, memPercent, diskPercent, tempC, tempOK, fanRPM, fanOK, show))
+			download := trayactivity.MacDownloadRate(link, h.activity.Snapshot())
+			h.recordHostMeters(cpuPercent, memPercent, diskPercent, tempC, fanRPM, fanMin, fanMax, percentOK, memOK, diskOK, tempOK, fanOK, fanVisible, cores, native.CoreTemps(), powerTemp, gpuTemp, perfTemp, download, elapsed > 0)
+			native.SetMenuBarTraffic(trayactivity.FormatMenuBarStats(download, cpuPercent, memPercent, diskPercent, tempC, tempOK, fanRPM, fanOK, show))
 		}
 	}
 }

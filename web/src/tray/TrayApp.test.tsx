@@ -169,7 +169,6 @@ it('presents recovery before runtime state and clears actionable controls on dis
  vi.mocked(desktopAction).mockResolvedValue({ status: null, sequence: 2, indicator: 'unreachable', can_quit: false, notebook: true })
  await userEvent.click(screen.getByRole('button', { name: 'Refresh status' }))
  await waitFor(() => expect(screen.queryByText('192.0.2.10')).toBeNull())
- await openMenuMeters()
  expect((screen.getByRole('switch', { name: 'Keep running with lid closed' }) as HTMLInputElement).disabled).toBe(true)
  expect(screen.queryByRole('button', { name: 'Continue recovery' })).toBeNull()
 })
@@ -183,15 +182,9 @@ it('routes full exit to native confirmation only when the service snapshot permi
  expect(desktopAction).toHaveBeenCalledWith('quit', { full: true })
 })
 
-async function openMenuMeters() {
- const toggle = screen.getByRole('button', { name: /Menu bar meters/ })
- if (toggle.getAttribute('aria-expanded') !== 'true') await userEvent.click(toggle)
-}
-
-it('toggles menu bar meters from the panel switches', async () => {
+it('toggles menu bar meters from the host status switches', async () => {
  render(<TrayApp />)
  await screen.findByText('192.0.2.10', { selector: '.tray-subtitle span' })
- await openMenuMeters()
  const cpu = screen.getByRole('switch', { name: 'CPU usage' }) as HTMLInputElement
  expect(cpu.checked).toBe(true)
  await userEvent.click(cpu)
@@ -207,7 +200,6 @@ it('acknowledges sleep changes once and shows the heat warning', async () => {
  })
  render(<TrayApp />)
  await screen.findByText('192.0.2.10', { selector: '.tray-subtitle span' })
- await openMenuMeters()
  await userEvent.click(screen.getByRole('switch', { name: 'Keep running with lid closed' }))
  await waitFor(() => expect((screen.getByRole('switch', { name: 'Keep running with lid closed' }) as HTMLInputElement).checked).toBe(true))
  expect(vi.mocked(desktopAction).mock.calls.filter(([action]) => action === 'sleep-prevention')).toEqual([['sleep-prevention', { enabled: true }]])
@@ -218,7 +210,6 @@ it('hides lid-closed running on a desktop Mac', async () => {
  vi.mocked(desktopAction).mockImplementation(async () => ({ ...fixture, notebook: false }))
  render(<TrayApp />)
  await screen.findByText('192.0.2.10', { selector: '.tray-subtitle span' })
- await openMenuMeters()
  expect(screen.queryByRole('switch', { name: 'Keep running with lid closed' })).toBeNull()
  expect(screen.getByRole('switch', { name: 'Fan speed' })).toBeTruthy()
 })
@@ -267,7 +258,6 @@ it('hides the fan speed and turns the curve off from the chart', async () => {
  const points = [{ c: 60, p: 0 }, { c: 72, p: 26 }, { c: 85, p: 100 }]
  render(<TrayApp />)
  await screen.findByText('192.0.2.10', { selector: '.tray-subtitle span' })
- await openMenuMeters()
  await userEvent.click(screen.getByRole('switch', { name: 'Fan speed' }))
  await waitFor(() => expect(desktopAction).toHaveBeenCalledWith('fan-control', { fan_visible: false, fan_enabled: true, fan_points: points }))
  await userEvent.click(screen.getByRole('button', { name: 'Fan' }))
